@@ -19,13 +19,12 @@ use storage::{
     save_proposal, save_vote_record, save_voter_snapshot, set_admin, set_contract_state,
     set_last_proposal, set_min_proposal_balance, set_paused, set_proposal_cooldown,
     set_restrict_admin_vote, set_version, set_voting_token, get_vote_record,
+    get_min_duration, get_max_duration, set_min_duration, set_max_duration,
 };
 use types::{ContractError, ContractState, DataKey, Proposal, ProposalState, Vote, VoteRecord};
 
 const MAX_TITLE_LEN: u32 = 128;
 const MAX_DESC_LEN: u32 = 1024;
-const MIN_DURATION: u64 = 60;        // 1 minute
-const MAX_DURATION: u64 = 2_592_000; // 30 days
 
 /// Minimal client for querying the governance token's total supply.
 #[contractclient(name = "TokenSupplyClient")]
@@ -43,6 +42,8 @@ impl GovernanceContract {
     /// Must be called exactly once before any other function.
     ///
     /// # Parameters
+    /// - `min_duration`: minimum allowed voting duration in seconds (e.g., 3600 for 1 hour)
+    /// - `max_duration`: maximum allowed voting duration in seconds (e.g., 2592000 for 30 days)
     /// - `restrict_admin_vote`: when `true`, the admin address cannot cast votes on proposals
     ///   they created, preventing a conflict of interest.
     ///
@@ -54,6 +55,8 @@ impl GovernanceContract {
         voting_token: Address,
         min_proposal_balance: i128,
         proposal_cooldown: u64,
+        min_duration: u64,
+        max_duration: u64,
         restrict_admin_vote: bool,
     ) -> Result<(), ContractError> {
         if is_initialized(&env) {
@@ -68,6 +71,8 @@ impl GovernanceContract {
         if proposal_cooldown > 0 {
             set_proposal_cooldown(&env, proposal_cooldown);
         }
+        set_min_duration(&env, min_duration);
+        set_max_duration(&env, max_duration);
         set_restrict_admin_vote(&env, restrict_admin_vote);
         set_version(&env, (1, 0, 0));
         set_contract_state(&env, &ContractState::Ready);
@@ -85,7 +90,7 @@ impl GovernanceContract {
     /// - [`ContractError::InvalidDescription`] if `description` is empty or exceeds 4096 characters.
     /// - [`ContractError::InvalidQuorum`] if `quorum` is zero or negative.
     /// - [`ContractError::QuorumExceedsSupply`] if `quorum` exceeds the total token supply.
-    /// - [`ContractError::InvalidDurationRange`] if `duration` is outside [60, 2_592_000] seconds.
+    /// - [`ContractError::InvalidDurationRange`] if `duration` is outside the configured [min_duration, max_duration] range.
     /// - [`ContractError::InsufficientBalance`] if proposer balance is below minimum.
     /// - [`ContractError::ProposalCooldown`] if proposer is within cooldown period.
     pub fn create_proposal(
@@ -115,8 +120,10 @@ impl GovernanceContract {
         if quorum <= 0 {
             return Err(ContractError::InvalidQuorum);
         }
-        // Duration: within [MIN_DURATION, MAX_DURATION]
-        if duration < MIN_DURATION || duration > MAX_DURATION {
+        // Duration: within configured [min_duration, max_duration]
+        let min_duration = get_min_duration(&env);
+        let max_duration = get_max_duration(&env);
+        if duration < min_duration || duration > max_duration {
             return Err(ContractError::InvalidDurationRange);
         }
 
@@ -507,5 +514,43 @@ impl GovernanceContract {
     ///   contract is fully operational.
     pub fn get_state(env: Env) -> ContractState {
         get_contract_state(&env)
+    }
+
+    /// Updates the minimum and maximum voting duration limits. Only the admin may call this.
+    ///
+    /// # Parameters
+    /// - `min_duration`: new minimum allowed voting duration in seconds
+    /// - `max_duration`: new maximum allowed voting duration in seconds
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if `admin` does not match the stored admin.
+    /// - [`ContractError::ContractPaused`] if the contract is paused.
+    pub fn update_duration_limits(
+        env: Env,
+        admin: Address,
+        min_duration: u64,
+        max_duration: u64,
+    ) -> Result<(), ContractError> {
+        if is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
+        admin.require_auth();
+        if get_admin(&env)? != admin {
+            return Err(ContractError::NotAdmin);
+        }
+        set_min_duration(&env, min_duration);
+        set_max_duration(&env, max_duration);
+        events::duration_limits_updated(&env, min_duration, max_duration);
+        Ok(())
+    }
+
+    /// Returns the current minimum voting duration in seconds.
+    pub fn min_duration(env: Env) -> u64 {
+        get_min_duration(&env)
+    }
+
+    /// Returns the current maximum voting duration in seconds.
+    pub fn max_duration(env: Env) -> u64 {
+        get_max_duration(&env)
     }
 }

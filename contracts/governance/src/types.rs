@@ -189,6 +189,14 @@ pub enum DataKey {
     /// Key space: one entry per `(proposal_id, voter)` pair.
     /// Kept separate from `VoteRecord` to allow independent querying of vote weight.
     VoterSnapshot(u64, Address),
+
+    /// Minimum allowed voting duration in seconds (instance storage).
+    /// Key space: singleton — only one `MinDuration` entry exists.
+    MinDuration,
+
+    /// Maximum allowed voting duration in seconds (instance storage).
+    /// Key space: singleton — only one `MaxDuration` entry exists.
+    MaxDuration,
 }
 
 #[contracttype]
