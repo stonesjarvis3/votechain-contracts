@@ -1,39 +1,31 @@
-import { useState } from 'react';
-import ProposalList from './components/ProposalList';
-import VoteHistory from './components/VoteHistory';
-import { sampleProposals } from './data';
+import React from "react";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
-const pages = [
-  { key: 'proposals', label: 'Proposal listing' },
-  { key: 'votes', label: 'Vote history' }
-] as const;
+// Placeholder page components — replace with real implementations
+const ProposalList = React.lazy(() => import("./pages/ProposalList"));
+const ProposalDetail = React.lazy(() => import("./pages/ProposalDetail"));
+const VotingPanel = React.lazy(() => import("./pages/VotingPanel"));
 
 export default function App() {
-  const [page, setPage] = useState<(typeof pages)[number]['key']>('proposals');
-
   return (
-    <main className="container" aria-label="VoteChain governance dashboard">
-      <header className="header">
-        <div>
-          <img src="/src/logo.svg" alt="VoteChain governance logo" width="60" height="60" />
-          <p>VoteChain governance dashboard</p>
-          <h1>Proposal search, vote history, and accessibility-ready UI</h1>
-        </div>
-        <nav className="nav-buttons" aria-label="Main navigation">
-          {pages.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              className={page === tab.key ? 'active-tab' : ''}
-              aria-pressed={page === tab.key}
-              onClick={() => setPage(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </header>
-      {page === 'proposals' ? <ProposalList proposals={sampleProposals} /> : <VoteHistory proposals={sampleProposals} />}
-    </main>
+    <ErrorBoundary section="App">
+      <ErrorBoundary section="ProposalList">
+        <React.Suspense fallback={<p>Loading…</p>}>
+          <ProposalList />
+        </React.Suspense>
+      </ErrorBoundary>
+
+      <ErrorBoundary section="ProposalDetail">
+        <React.Suspense fallback={<p>Loading…</p>}>
+          <ProposalDetail />
+        </React.Suspense>
+      </ErrorBoundary>
+
+      <ErrorBoundary section="VotingPanel">
+        <React.Suspense fallback={<p>Loading…</p>}>
+          <VotingPanel />
+        </React.Suspense>
+      </ErrorBoundary>
+    </ErrorBoundary>
   );
 }
