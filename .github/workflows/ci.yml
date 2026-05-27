@@ -6,6 +6,7 @@ on:
     branches: [main, develop]
 env:
   CARGO_TERM_COLOR: always
+  STELLAR_CLI_VERSION: "21.6.0"
 jobs:
   license-check:
     name: License Headers
@@ -123,7 +124,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - run: cargo install --locked stellar-cli --features opt
+      - run: cargo install --locked stellar-cli@${{ env.STELLAR_CLI_VERSION }} --features opt
       - uses: actions/cache@v4
         with:
           path: |
@@ -180,7 +181,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - run: cargo install --locked stellar-cli --features opt
+      - run: cargo install --locked stellar-cli@${{ env.STELLAR_CLI_VERSION }} --features opt
       - uses: actions/cache@v4
         with:
           path: |
