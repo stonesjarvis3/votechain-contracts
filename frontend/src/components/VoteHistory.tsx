@@ -50,7 +50,7 @@ export default function VoteHistory({ proposals }: Props) {
           <h2 id="vote-history-heading">Wallet vote history</h2>
           <p>View votes cast by any public address without a wallet connection.</p>
         </div>
-        <button type="button" onClick={exportVotes} disabled={votes.length === 0} aria-disabled={votes.length === 0}>
+        <button type="button" onClick={exportVotes} disabled={votes.length === 0} aria-disabled={votes.length === 0} aria-label="Export vote history as CSV">
           Export CSV
         </button>
       </div>

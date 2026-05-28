@@ -170,7 +170,7 @@ export default function CreateProposalForm({ onSubmit }: Props) {
           />
         </div>
 
-        <button type="submit">Submit Proposal</button>
+        <button type="submit" aria-label="Submit governance proposal">Submit Proposal</button>
       </form>
     </section>
   );
