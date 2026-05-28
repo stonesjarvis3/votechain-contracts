@@ -927,6 +927,12 @@ See [docs/examples/rust.md](docs/examples/rust.md) for more detailed examples.
 
 ### JavaScript/TypeScript Integration
 
+Install the packaged SDK for the easiest JavaScript/TypeScript integration:
+
+```bash
+npm install @votechain/sdk
+```
+
 Complete JavaScript examples for integrating VoteChain into web applications:
 
 ```javascript
