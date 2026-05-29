@@ -21,11 +21,55 @@
   align-items: center;
 }
 
+.navbar-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .navbar-logo a {
   font-size: 1.5rem;
   font-weight: bold;
   color: #3b82f6;
   text-decoration: none;
+}
+
+/* Network Indicator */
+.network-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.network-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  text-transform: capitalize;
+}
+
+.network-badge.mainnet {
+  background-color: #dcfce7;
+  color: #166534;
+  border: 1px solid #166534;
+}
+
+.network-badge.testnet {
+  background-color: #fef9c3;
+  color: #854d0e;
+  border: 1px solid #854d0e;
+}
+
+.network-badge.local {
+  background-color: #f3f4f6;
+  color: #374151;
+  border: 1px solid #374151;
+}
+
+.network-warning {
+  cursor: help;
+  font-size: 0.9rem;
 }
 
 .navbar-links {
@@ -123,6 +167,34 @@
   flex-direction: column;
   padding: 20px;
   gap: 20px;
+}
+
+.mobile-network-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #f3f4f6;
+  margin-bottom: 10px;
+}
+
+.mobile-network-info span:first-child {
+  font-size: 0.875rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.mobile-network-info .network-badge {
+  width: fit-content;
+}
+
+.mismatch-alert {
+  font-size: 0.75rem;
+  color: #b91c1c;
+  background-color: #fee2e2;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-weight: 500;
 }
 
 .mobile-menu-content a {

@@ -1,8 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './Navbar.css';
 
+type Network = 'mainnet' | 'testnet' | 'local';
+
 const Navbar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [network, setNetwork] = useState<Network>('testnet'); // Default to testnet
+  const [walletNetwork, setWalletNetwork] = useState<Network>('testnet');
+  const [showWarning, setShowWarning] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const toggleMenu = () => {
@@ -12,6 +17,15 @@ const Navbar: React.FC = () => {
   const closeMenu = () => {
     setIsOpen(false);
   };
+
+  // Check for network mismatch
+  useEffect(() => {
+    if (network !== walletNetwork) {
+      setShowWarning(true);
+    } else {
+      setShowWarning(false);
+    }
+  }, [network, walletNetwork]);
 
   // Close menu on outside click
   useEffect(() => {
@@ -56,6 +70,16 @@ const Navbar: React.FC = () => {
       <div className="navbar-container">
         <div className="navbar-logo">
           <a href="/">VoteChain</a>
+          <div className="network-indicator">
+            <span className={`network-badge ${network}`}>
+              {network.charAt(0).toUpperCase() + network.slice(1)}
+            </span>
+            {showWarning && (
+              <span className="network-warning" title="Wallet network mismatch!">
+                ⚠️
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Desktop Links */}
@@ -83,6 +107,17 @@ const Navbar: React.FC = () => {
           className={`mobile-menu ${isOpen ? 'is-open' : ''}`}
         >
           <div className="mobile-menu-content">
+            <div className="mobile-network-info">
+              <span>Network:</span>
+              <span className={`network-badge ${network}`}>
+                {network.charAt(0).toUpperCase() + network.slice(1)}
+              </span>
+              {showWarning && (
+                <div className="mismatch-alert">
+                  Wallet connected to {walletNetwork}
+                </div>
+              )}
+            </div>
             <a href="/proposals" onClick={closeMenu}>Proposals</a>
             <a href="/create" onClick={closeMenu}>Create</a>
             <a href="/about" onClick={closeMenu}>About</a>
