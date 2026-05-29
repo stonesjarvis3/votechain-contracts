@@ -637,4 +637,44 @@ impl GovernanceContract {
 
         proposals
     }
+
+    /// Returns proposal IDs filtered by state with offset/limit pagination.
+    pub fn get_proposals_by_state(
+        env: Env,
+        state: ProposalState,
+        offset: u64,
+        limit: u64,
+    ) -> soroban_sdk::Vec<u64> {
+        const MAX_LIMIT: u64 = 50;
+
+        let total = env.storage()
+            .instance()
+            .get(&DataKey::ProposalCount)
+            .unwrap_or(0);
+
+        if limit == 0 || total == 0 {
+            return soroban_sdk::Vec::new(&env);
+        }
+
+        let effective_limit = if limit > MAX_LIMIT { MAX_LIMIT } else { limit };
+        let mut ids = soroban_sdk::Vec::new(&env);
+        let mut skipped = 0;
+
+        for id in 1..=total {
+            if let Ok(proposal) = load_proposal(&env, id) {
+                if proposal.state == state {
+                    if skipped < offset {
+                        skipped += 1;
+                        continue;
+                    }
+                    ids.push_back(id);
+                    if ids.len() >= effective_limit as usize {
+                        break;
+                    }
+                }
+            }
+        }
+
+        ids
+    }
 }
