@@ -19,11 +19,27 @@ A responsive navigation bar with a mobile hamburger menu and a network indicator
   - Closes on `Escape` key press.
   - Smooth slide-in animation.
 
+### Proposal Detail Page
+
+A dedicated page showing all proposal metadata and voting information.
+
+- **Metadata Display**: Shows title, description, proposer (truncated), start/end dates, and quorum.
+- **Vote Breakdown**: 
+  - Visual progress bar showing the distribution of Yes, No, and Abstain votes.
+  - Percentage and absolute count for each vote type.
+  - Quorum progress tracking.
+- **Contextual Actions**:
+  - **Vote**: Available when proposal is Active and not expired.
+  - **Finalize**: Available when proposal is Active but expired.
+  - **Execute**: Available when proposal is Passed (Admin only).
+  - **Cancel**: Available for Active/Passed proposals (Admin only).
+- **Navigation**: Includes a "Back to Proposals" link for easy navigation.
+
 #### Files
 
-- `src/components/Navbar/Navbar.tsx`: React component logic.
-- `src/components/Navbar/Navbar.css`: Component styling (Vanilla CSS).
-- `src/components/Navbar/index.ts`: Export entry point.
+- `src/types/proposal.ts`: TypeScript interfaces and enums.
+- `src/pages/ProposalDetail/ProposalDetail.tsx`: Page component logic.
+- `src/pages/ProposalDetail/ProposalDetail.css`: Page styling.
 
 #### Usage
 
