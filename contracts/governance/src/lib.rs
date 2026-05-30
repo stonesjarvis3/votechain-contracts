@@ -93,6 +93,10 @@ impl GovernanceContract {
     /// Must be called exactly once before any other function.
     ///
     /// # Parameters
+    /// - `admin` – Address with privileged operations (execute, cancel, pause).
+    /// - `voting_token` – Address of the SEP-41-compatible governance token contract.
+    /// - `min_proposal_balance` – Minimum token balance required to create proposals (`0` = no minimum).
+    /// - `proposal_cooldown` – Seconds between proposals per address (`0` = no cooldown).
     /// - `min_duration`: minimum allowed voting duration in seconds (e.g., 3600 for 1 hour)
     /// - `max_duration`: maximum allowed voting duration in seconds (e.g., 2592000 for 30 days)
     /// - `restrict_admin_vote`: when `true`, the admin address cannot cast votes on proposals
@@ -103,6 +107,19 @@ impl GovernanceContract {
     /// # Errors
     /// - [`ContractError::AlreadyInitialized`] if the contract has already been initialised.
     /// - [`ContractError::InvalidAddress`] if `admin` or `voting_token` is the zero address.
+    ///
+    /// # Example
+    /// ```text
+    /// GovernanceContract::initialize(
+    ///     env, admin, token,
+    ///     1_000_000,  // min 1M tokens to propose
+    ///     86_400,     // 1-day cooldown
+    ///     3_600,      // min 1-hour voting window
+    ///     2_592_000,  // max 30-day voting window
+    ///     true,       // restrict admin voting
+    ///     0,          // no timelock
+    /// )?;
+    /// ```
     pub fn initialize(
         env: Env,
         admin: Address,
@@ -147,6 +164,13 @@ impl GovernanceContract {
     /// # Returns
     /// The numeric ID assigned to the new proposal.
     ///
+    /// # Parameters
+    /// - `proposer` – Address creating the proposal (must have sufficient balance).
+    /// - `title` – Proposal title (1–128 characters, printable UTF-8 only).
+    /// - `description` – Proposal description (1–1024 characters, printable UTF-8 only).
+    /// - `quorum` – Minimum total votes required for the proposal to pass (must be > 0 and ≤ total supply).
+    /// - `duration` – Voting period in seconds; must be within the [min_duration, max_duration] range set at init.
+    ///
     /// # Errors
     /// - [`ContractError::InvalidAddress`] if `proposer` is the zero address.
     /// - [`ContractError::InvalidTitle`] if `title` is empty or exceeds 256 characters.
@@ -157,6 +181,17 @@ impl GovernanceContract {
     /// - [`ContractError::InsufficientBalance`] if proposer balance is below minimum.
     /// - [`ContractError::ProposalCooldown`] if proposer is within cooldown period.
     /// - [`ContractError::ProposalCountOverflow`] if the proposal ID counter would overflow.
+    ///
+    /// # Example
+    /// ```text
+    /// let id = GovernanceContract::create_proposal(
+    ///     env, proposer,
+    ///     String::from_slice(&env, "Increase Treasury"),
+    ///     String::from_slice(&env, "Allocate 10M tokens to treasury"),
+    ///     5_000_000,  // 5M token quorum
+    ///     604_800,    // 7 days
+    /// )?;
+    /// ```
     pub fn create_proposal(
         env: Env,
         proposer: Address,
@@ -251,6 +286,14 @@ impl GovernanceContract {
 
     /// Casts a vote on an active proposal.
     ///
+    /// The voter's token balance at call time is captured as the vote weight and stored
+    /// immutably, preventing balance manipulation after the vote is recorded.
+    ///
+    /// # Parameters
+    /// - `voter` – Address casting the vote; must authorise the call and hold tokens.
+    /// - `proposal_id` – ID of the proposal to vote on.
+    /// - `vote` – Vote direction: `Vote::Yes`, `Vote::No`, or `Vote::Abstain`.
+    ///
     /// # Errors
     /// - [`ContractError::InvalidAddress`] if `voter` is the zero address.
     /// - [`ContractError::ProposalNotFound`] if `proposal_id` does not exist.
@@ -263,6 +306,11 @@ impl GovernanceContract {
     /// - [`ContractError::AdminVoteRestricted`] if `restrict_admin_vote` is enabled and the admin
     ///   attempts to vote on a proposal they created.
     /// - [`ContractError::ContractPaused`] if the contract is paused.
+    ///
+    /// # Example
+    /// ```text
+    /// GovernanceContract::cast_vote(env, voter, proposal_id, Vote::Yes)?;
+    /// ```
     pub fn cast_vote(
         env: Env,
         voter: Address,
@@ -704,7 +752,26 @@ impl GovernanceContract {
         Ok(())
     }
 
-    /// Lists proposals with offset/limit pagination.
+    /// Returns a paginated slice of proposals ordered by ascending proposal ID.
+    ///
+    /// # Parameters
+    /// - `offset` – Zero-based index of the first proposal to return (i.e. skip the first
+    ///   `offset` proposals). Pass `0` to start from the beginning.
+    /// - `limit` – Maximum number of proposals to return. Capped internally at `50`; passing
+    ///   a larger value silently uses `50`.
+    ///
+    /// # Returns
+    /// A [`soroban_sdk::Vec<Proposal>`] containing up to `limit` proposals starting at
+    /// `offset`. Returns an empty vector when `offset >= proposal_count`.
+    ///
+    /// # Example
+    /// ```text
+    /// // First page (proposals 1-10)
+    /// list_proposals(env, 0, 10)
+    ///
+    /// // Second page (proposals 11-20)
+    /// list_proposals(env, 10, 10)
+    /// ```
     pub fn list_proposals(env: Env, offset: u64, limit: u64) -> soroban_sdk::Vec<Proposal> {        const MAX_LIMIT: u64 = 50;
 
         let total = env.storage()
