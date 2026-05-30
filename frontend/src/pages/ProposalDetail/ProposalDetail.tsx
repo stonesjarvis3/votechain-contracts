@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Proposal, ProposalStatus } from '../../types/proposal';
 import './ProposalDetail.css';
 
@@ -19,6 +19,15 @@ const ProposalDetail: React.FC<ProposalDetailProps> = ({
   onExecute,
   onCancel,
 }) => {
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('default');
+
+  const displayedContent = useMemo(() => {
+    if (selectedLanguage !== 'default' && proposal.translations?.[selectedLanguage]) {
+      return proposal.translations[selectedLanguage];
+    }
+    return { title: proposal.title, description: proposal.description };
+  }, [proposal, selectedLanguage]);
+
   const totalVotes = useMemo(() => {
     return proposal.votesYes + proposal.votesNo + proposal.votesAbstain;
   }, [proposal]);
@@ -38,16 +47,37 @@ const ProposalDetail: React.FC<ProposalDetailProps> = ({
 
   const isExpired = Date.now() / 1000 > proposal.endTime;
 
+  const availableLanguages = proposal.translations ? Object.keys(proposal.translations) : [];
+
   return (
     <div className="proposal-detail">
       <div className="proposal-header">
         <a href="/proposals" className="back-link">← Back to Proposals</a>
+        
+        {availableLanguages.length > 0 && (
+          <div className="language-selector">
+            <label htmlFor="lang-select">Language: </label>
+            <select
+              id="lang-select"
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value)}
+            >
+              <option value="default">Default</option>
+              {availableLanguages.map((lang) => (
+                <option key={lang} value={lang}>
+                  {lang.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="proposal-status-badge" data-status={proposal.status}>
           {proposal.status}
         </div>
       </div>
 
-      <h1 className="proposal-title">{proposal.title}</h1>
+      <h1 className="proposal-title">{displayedContent.title}</h1>
       
       <div className="proposal-meta">
         <div className="meta-item">
@@ -74,7 +104,7 @@ const ProposalDetail: React.FC<ProposalDetailProps> = ({
 
       <div className="proposal-section">
         <h3>Description</h3>
-        <p className="proposal-description">{proposal.description}</p>
+        <p className="proposal-description">{displayedContent.description}</p>
       </div>
 
       <div className="proposal-section">

@@ -25,9 +25,9 @@ pub mod test_helpers;
 #[cfg(test)]
 mod prop_tests;
 
-use soroban_sdk::{contract, contractclient, contractimpl, token, Address, Env, String};
+use soroban_sdk::{contract, contractclient, contractimpl, token, Address, Env, String, Map};
 use storage::{
-    get_admin, get_contract_state, get_last_proposal, get_min_duration, get_min_proposal_balance,
+    get_admin as storage_get_admin, get_contract_state, get_last_proposal, get_min_duration, get_min_proposal_balance,
     get_proposal_cooldown, get_restrict_admin_vote, get_timelock_duration, get_version,
     get_voter_snapshot, get_voting_token, has_voted, is_initialized, is_paused, load_proposal,
     mark_voted, next_id, save_proposal, save_vote_record, save_voter_snapshot, set_admin,
@@ -37,7 +37,7 @@ use storage::{
     set_pending_admin, get_pending_admin, clear_pending_admin,
     set_admin_transfer_expiry, get_admin_transfer_expiry,
 };
-use types::{ContractError, ContractState, DataKey, Proposal, ProposalState, Vote, VoteRecord};
+use types::{ContractError, ContractState, DataKey, Proposal, ProposalState, Vote, VoteRecord, Translation};
 
 const MAX_TITLE_LEN: u32 = 128;
 const MAX_DESC_LEN: u32 = 1024;
@@ -242,6 +242,7 @@ impl GovernanceContract {
             end_time: now + duration,
             state: ProposalState::Active,
             execute_after: 0,
+            translations: None,
         };
         save_proposal(&env, &proposal);
         set_last_proposal(&env, &proposer, now);
@@ -294,7 +295,7 @@ impl GovernanceContract {
         }
 
         if get_restrict_admin_vote(&env) {
-            let admin = get_admin(&env)?;
+            let admin = storage_get_admin(&env)?;
             if voter == admin && proposal.proposer == admin {
                 return Err(ContractError::AdminVoteRestricted);
             }
@@ -413,7 +414,7 @@ impl GovernanceContract {
         if is_paused(&env) {
             return Err(ContractError::ContractPaused);
         }
-        if get_admin(&env)? != admin {
+        if storage_get_admin(&env)? != admin {
             return Err(ContractError::NotAdmin);
         }
         let mut proposal = load_proposal(&env, proposal_id)?;
@@ -444,7 +445,7 @@ impl GovernanceContract {
         if is_paused(&env) {
             return Err(ContractError::ContractPaused);
         }
-        if get_admin(&env)? != admin {
+        if storage_get_admin(&env)? != admin {
             return Err(ContractError::NotAdmin);
         }
         let mut proposal = load_proposal(&env, proposal_id)?;
@@ -478,7 +479,7 @@ impl GovernanceContract {
         if is_paused(&env) {
             return Err(ContractError::ContractPaused);
         }
-        if get_admin(&env)? != admin {
+        if storage_get_admin(&env)? != admin {
             return Err(ContractError::NotAdmin);
         }
         if new_quorum <= 0 {
@@ -514,7 +515,7 @@ impl GovernanceContract {
         if is_paused(&env) {
             return Err(ContractError::ContractPaused);
         }
-        if get_admin(&env)? != admin {
+        if storage_get_admin(&env)? != admin {
             return Err(ContractError::NotAdmin);
         }
         set_admin(&env, &new_admin);
@@ -544,7 +545,7 @@ impl GovernanceContract {
         if is_paused(&env) {
             return Err(ContractError::ContractPaused);
         }
-        if get_admin(&env)? != admin {
+        if storage_get_admin(&env)? != admin {
             return Err(ContractError::NotAdmin);
         }
         let window = if window_secs == 0 { 172_800 } else { window_secs }; // default 48 h
@@ -580,7 +581,7 @@ impl GovernanceContract {
             clear_pending_admin(&env);
             return Err(ContractError::AdminTransferExpired);
         }
-        let old_admin = get_admin(&env)?;
+        let old_admin = storage_get_admin(&env)?;
         set_admin(&env, &new_admin);
         clear_pending_admin(&env);
         events::admin_transferred(&env, &old_admin, &new_admin);
@@ -598,7 +599,7 @@ impl GovernanceContract {
     pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
         admin.require_auth();
         require_non_zero_address(&env, &admin)?;
-        if get_admin(&env)? != admin {
+        if storage_get_admin(&env)? != admin {
             return Err(ContractError::NotAdmin);
         }
         set_paused(&env, true);
@@ -617,7 +618,7 @@ impl GovernanceContract {
     pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
         admin.require_auth();
         require_non_zero_address(&env, &admin)?;
-        if get_admin(&env)? != admin {
+        if storage_get_admin(&env)? != admin {
             return Err(ContractError::NotAdmin);
         }
         if !is_paused(&env) {
@@ -714,7 +715,7 @@ impl GovernanceContract {
     ) -> Result<(), ContractError> {
         admin.require_auth();
         require_non_zero_address(&env, &admin)?;
-        if get_admin(&env)? != admin {
+        if storage_get_admin(&env)? != admin {
             return Err(ContractError::NotAdmin);
         }
         let current = get_version(&env);
@@ -723,6 +724,62 @@ impl GovernanceContract {
         }
         set_version(&env, new_version);
         events::contract_upgraded(&env, current, new_version);
+        Ok(())
+    }
+
+    /// Returns the contract administrator address.
+    pub fn get_admin(env: Env) -> Result<Address, ContractError> {
+        storage_get_admin(&env)
+    }
+
+    /// Adds a translation for an existing proposal. Only the proposer or admin may call this.
+    ///
+    /// # Errors
+    /// - [`ContractError::ProposalNotFound`] if `proposal_id` does not exist.
+    /// - [`ContractError::NotAdmin`] if caller is not the proposer or admin.
+    /// - [`ContractError::InvalidTitle`] if translated title is invalid.
+    /// - [`ContractError::InvalidDescription`] if translated description is invalid.
+    pub fn add_proposal_translation(
+        env: Env,
+        caller: Address,
+        proposal_id: u64,
+        language_code: String,
+        title: String,
+        description: String,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        let mut proposal = load_proposal(&env, proposal_id)?;
+
+        // Only proposer or admin can add translations
+        let admin = storage_get_admin(&env)?;
+        if caller != proposal.proposer && caller != admin {
+            return Err(ContractError::NotAdmin);
+        }
+
+        // Validate title and description
+        let title_len = title.len();
+        if title_len == 0 || title_len > MAX_TITLE_LEN {
+            return Err(ContractError::InvalidTitle);
+        }
+        validate_string(&title, ContractError::InvalidTitle)?;
+
+        let desc_len = description.len();
+        if desc_len == 0 || desc_len > MAX_DESC_LEN {
+            return Err(ContractError::InvalidDescription);
+        }
+        validate_string(&description, ContractError::InvalidDescription)?;
+
+        // Validate language code (basic check: 2-5 chars, e.g. "en", "en-US")
+        let lang_len = language_code.len();
+        if lang_len < 2 || lang_len > 5 {
+            return Err(ContractError::InvalidLanguageCode);
+        }
+
+        let mut translations = proposal.translations.unwrap_or_else(|| Map::new(&env));
+        translations.set(language_code, Translation { title, description });
+        proposal.translations = Some(translations);
+
+        save_proposal(&env, &proposal);
         Ok(())
     }
 }

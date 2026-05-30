@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use soroban_sdk::{contracterror, contracttype, Address, String};
+use soroban_sdk::{contracterror, contracttype, Address, String, Map};
 
 /// All revert conditions for the governance contract.
 #[contracterror]
@@ -87,6 +87,8 @@ pub enum ContractError {
     NotPendingAdmin = 33,
     /// 34 – Target version is lower than or equal to the current version (downgrade rejected)
     DowngradeNotAllowed = 34,
+    /// 35 – Language code is invalid or not supported
+    InvalidLanguageCode = 35,
 }
 
 /// Lifecycle state of the governance contract itself.
@@ -121,6 +123,13 @@ pub enum Vote {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Translation {
+    pub title: String,
+    pub description: String,
+}
+
+#[contracttype]
 #[derive(Clone, Debug)]
 pub struct Proposal {
     pub id: u64,
@@ -137,6 +146,8 @@ pub struct Proposal {
     /// Earliest Unix timestamp at which the proposal may be executed.
     /// Set to `end_time + timelock_duration` when the proposal passes; 0 otherwise.
     pub execute_after: u64,
+    /// Optional map of translations for title and description, keyed by language code (e.g. "en", "es").
+    pub translations: Option<Map<String, Translation>>,
 }
 
 /// Storage key enum for the governance contract.
