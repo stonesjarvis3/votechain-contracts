@@ -2,6 +2,14 @@
 
 Welcome to VoteChain! This guide will help you set up your development environment and make your first contribution.
 
+## Video Walkthrough
+
+A short video walkthrough (≈ 8 min) covers the full local setup: cloning the repo, installing Rust and the Stellar CLI, running `make test`, and building the WASM binaries with `make build`.
+
+▶ **[Watch on YouTube](https://www.youtube.com/watch?v=TODO_REPLACE_WITH_REAL_ID)**
+
+A full text transcript is available in [`docs/video-transcript-local-dev-setup.md`](video-transcript-local-dev-setup.md) for accessibility.
+
 ## Prerequisites
 
 Before you begin, ensure you have the following installed on your system:

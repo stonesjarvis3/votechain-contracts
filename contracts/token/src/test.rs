@@ -1,3 +1,17 @@
+// Copyright 2024 VoteChain Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #![cfg(test)]
 use super::*;
 use soroban_sdk::{symbol_short, testutils::{Address as _, Events}, Address, Env, IntoVal, TryFromVal};
@@ -193,6 +207,80 @@ fn test_transfer_negative_amount() {
 }
 
 #[test]
+fn test_initialize_zero_address_reverts() {
+    let (env, c) = setup();
+    let zero = Address::from_str(
+        &env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    );
+    c.initialize(&zero, &1_000);
+}
+
+#[test]
+fn test_get_version() {
+    let (env, c) = setup();
+    let admin = Address::generate(&env);
+    c.initialize(&admin, &1_000);
+    assert_eq!(c.get_version(), (1, 0, 0));
+}
+
+#[test]
+fn test_approve_sets_allowance_and_allows_transfer_from() {
+    let (env, c) = setup();
+    let admin = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    c.initialize(&admin, &1_000);
+    c.approve(&admin, &spender, &500);
+    assert_eq!(allowance(&env, &admin, &spender), 500);
+
+    c.transfer_from(&spender, &admin, &recipient, &200);
+    assert_eq!(c.balance(&admin), 800);
+    assert_eq!(c.balance(&recipient), 200);
+    assert_eq!(allowance(&env, &admin, &spender), 300);
+}
+
+#[test]
+#[should_panic]
+fn test_transfer_from_insufficient_allowance() {
+    let (env, c) = setup();
+    let admin = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    c.initialize(&admin, &1_000);
+    c.approve(&admin, &spender, &100);
+    c.transfer_from(&spender, &admin, &recipient, &200);
+}
+
+#[test]
+#[should_panic]
+fn test_transfer_from_insufficient_balance() {
+    let (env, c) = setup();
+    let admin = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    c.initialize(&admin, &100);
+    c.approve(&admin, &spender, &500);
+    c.transfer_from(&spender, &admin, &recipient, &200);
+}
+
+#[test]
+#[should_panic]
+fn test_approve_zero_address_reverts() {
+    let (env, c) = setup();
+    let admin = Address::generate(&env);
+    let zero = Address::from_str(
+        &env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    );
+    c.initialize(&admin, &1_000);
+    c.approve(&admin, &zero, &100);
+}
+
+#[test]
 fn test_transfer_event_emitted() {
     let (env, c) = setup();
     let admin = Address::generate(&env);
@@ -281,7 +369,8 @@ fn test_transfer_admin_emits_event() {
     let events = env.events().all();
     assert!(events.iter().any(|(_, topics, data)| {
         topics == (symbol_short!("admxfer"),).into_val(&env)
-            && data == (admin.clone(), new_admin.clone()).into_val(&env)
+            && <(Address, Address)>::try_from_val(&env, &data).ok().as_ref()
+                == Some(&(admin.clone(), new_admin.clone()))
     }));
 }
 

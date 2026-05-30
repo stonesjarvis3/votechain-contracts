@@ -1,3 +1,17 @@
+// Copyright 2024 VoteChain Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use soroban_sdk::{contracterror, contracttype, Address, String};
 
 /// All revert conditions for the governance contract.
@@ -49,6 +63,43 @@ pub enum ContractError {
     InvalidDurationRange = 21,
     /// 22 – Quorum exceeds the total token supply
     QuorumExceedsSupply = 22,
+    /// 23 – Voting period has not yet started
+    VotingNotStarted = 23,
+    /// 24 – New admin address is invalid (e.g. zero address)
+    InvalidNewAdmin = 24,
+    /// 25 – Admin is not permitted to vote on their own proposals
+    AdminVoteRestricted = 25,
+    /// 26 – Contract is paused; state-changing operations are blocked
+    ContractPaused = 26,
+    /// 27 – Contract is not paused
+    NotPaused = 27,
+    /// 28 – Address parameter is the zero/default address
+    InvalidAddress = 28,
+    /// 29 – Proposal ID counter overflowed (u64::MAX reached)
+    ProposalCountOverflow = 29,
+    /// 30 – Timelock period has not yet expired
+    TimelockNotExpired = 30,
+    /// 31 – No pending admin transfer has been proposed
+    PendingAdminNotSet = 31,
+    /// 32 – The admin transfer window has expired; propose again
+    AdminTransferExpired = 32,
+    /// 33 – Caller is not the pending admin
+    NotPendingAdmin = 33,
+    /// 34 – Target version is lower than or equal to the current version (downgrade rejected)
+    DowngradeNotAllowed = 34,
+}
+
+/// Lifecycle state of the governance contract itself.
+///
+/// - `Uninitialized`: the contract has been deployed but `initialize` has not
+///   yet been called. No governance operations are possible.
+/// - `Ready`: `initialize` completed successfully. The contract is fully
+///   operational.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub enum ContractState {
+    Uninitialized,
+    Ready,
 }
 
 #[contracttype]
@@ -83,6 +134,9 @@ pub struct Proposal {
     pub start_time: u64,
     pub end_time: u64,
     pub state: ProposalState,
+    /// Earliest Unix timestamp at which the proposal may be executed.
+    /// Set to `end_time + timelock_duration` when the proposal passes; 0 otherwise.
+    pub execute_after: u64,
 }
 
 /// Storage key enum for the governance contract.
@@ -92,21 +146,37 @@ pub struct Proposal {
 /// occupies a completely separate key space — two variants with the same
 /// payload can never collide.
 ///
-/// ## Key-space map
+/// ## Key-space map (SEC-006 collision analysis)
 ///
-/// | Variant                          | Storage tier | Description                                        |
-/// |----------------------------------|--------------|---------------------------------------------------|
-/// | `Proposal(u64)`                  | Persistent   | Full proposal struct, keyed by proposal ID         |
-/// | `ProposalCount`                  | Instance     | Monotonic counter used to assign proposal IDs      |
-/// | `HasVoted(u64, Address)`         | Persistent   | Boolean flag: has this voter voted on this proposal|
-/// | `VoteRecord(u64, Address)`       | Persistent   | Detailed vote record (type + weight) per voter     |
-/// | `VoterSnapshot(u64, Address)`    | Persistent   | Token-balance snapshot captured at vote time       |
-/// | `LastProposal(Address)`          | Persistent   | Timestamp of a proposer's most recent proposal     |
-/// | `Admin`                          | Instance     | Contract administrator address                     |
-/// | `VotingToken`                    | Instance     | Governance token contract address                  |
-/// | `MinProposalBalance`             | Instance     | Minimum token balance required to create a proposal|
-/// | `ProposalCooldown`               | Instance     | Seconds a proposer must wait between proposals     |
-/// | `Version`                        | Instance     | Semver tuple `(major, minor, patch)`               |
+/// | Variant                          | Storage tier | Description                                         |
+/// |----------------------------------|--------------|-----------------------------------------------------|
+/// | `Proposal(u64)`                  | Persistent   | Full proposal struct, keyed by proposal ID          |
+/// | `ProposalCount`                  | Instance     | Monotonic counter used to assign proposal IDs       |
+/// | `HasVoted(u64, Address)`         | Persistent   | Boolean flag: has this voter voted on this proposal |
+/// | `VoteRecord(u64, Address)`       | Persistent   | Detailed vote record (type + weight) per voter      |
+/// | `VoterSnapshot(u64, Address)`    | Persistent   | Token-balance snapshot captured at vote time        |
+/// | `LastProposal(Address)`          | Persistent   | Timestamp of a proposer's most recent proposal      |
+/// | `Admin`                          | Instance     | Contract administrator address                      |
+/// | `VotingToken`                    | Instance     | Governance token contract address                   |
+/// | `MinProposalBalance`             | Instance     | Minimum token balance required to create a proposal |
+/// | `ProposalCooldown`               | Instance     | Seconds a proposer must wait between proposals      |
+/// | `ContractState`                  | Instance     | Lifecycle state (Uninitialized / Ready)             |
+/// | `RestrictAdminVote`              | Instance     | Whether admin vote on own proposals is blocked      |
+/// | `Paused`                         | Instance     | Whether the contract is currently paused            |
+/// | `Version`                        | Instance     | Semver tuple `(major, minor, patch)`                |
+///
+/// ## Collision safety
+///
+/// Soroban serialises each `DataKey` variant by encoding the enum discriminant
+/// **before** any payload into the XDR key.  This means:
+///
+/// - `HasVoted(id, addr)`, `VoteRecord(id, addr)`, and `VoterSnapshot(id, addr)`
+///   share the same payload shape `(u64, Address)` but have distinct discriminants,
+///   so they can never alias each other regardless of the argument values.
+/// - Singleton variants (`Admin`, `VotingToken`, `ProposalCount`, …) have no
+///   payload, so their keys are fixed and globally unique within this contract.
+/// - No two distinct variants can produce the same serialised key because the
+///   discriminant is always the first element of the encoding.
 #[contracttype]
 pub enum DataKey {
     /// Full [`Proposal`] struct, keyed by proposal ID (persistent storage).
@@ -142,6 +212,18 @@ pub enum DataKey {
     /// Key space: singleton — only one `ProposalCooldown` entry exists.
     ProposalCooldown,
 
+    /// Lifecycle state of the governance contract (instance storage).
+    /// Key space: singleton — only one `ContractState` entry exists.
+    ContractState,
+
+    /// Whether admin is restricted from voting on their own proposals (instance storage).
+    /// Key space: singleton — only one `RestrictAdminVote` entry exists.
+    RestrictAdminVote,
+
+    /// Whether the contract is currently paused (instance storage).
+    /// Key space: singleton — only one `Paused` entry exists.
+    Paused,
+
     /// Timestamp (Unix seconds) of `proposer`'s most recent proposal (persistent storage).
     /// Key space: one entry per unique proposer address.
     LastProposal(Address),
@@ -154,6 +236,25 @@ pub enum DataKey {
     /// Key space: one entry per `(proposal_id, voter)` pair.
     /// Kept separate from `VoteRecord` to allow independent querying of vote weight.
     VoterSnapshot(u64, Address),
+
+    /// Mandatory delay (seconds) between a proposal passing and it becoming executable (instance storage).
+    /// Key space: singleton — only one `TimelockDuration` entry exists.
+    TimelockDuration,
+
+    /// Minimum allowed voting duration in seconds (instance storage).
+    /// Key space: singleton — only one `MinDuration` entry exists.
+    MinDuration,
+
+    /// Maximum allowed voting duration in seconds (instance storage).
+    /// Key space: singleton — only one `MaxDuration` entry exists.
+    MaxDuration,
+
+    /// Address nominated to become the next admin (instance storage).
+    /// Set by `propose_admin_transfer`; cleared on acceptance or expiry.
+    PendingAdmin,
+
+    /// Unix timestamp after which the pending admin nomination expires (instance storage).
+    AdminTransferExpiry,
 }
 
 #[contracttype]

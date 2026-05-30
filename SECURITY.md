@@ -59,6 +59,13 @@ When reporting, please include:
 - `contracts/token/**` — governance token minting, balances, transfers
 - Build and CI tooling that could affect contract correctness (`scripts/`, `.github/workflows/`)
 
+## Secret scanning and push protection
+
+This repository includes an automated GitHub Actions workflow that scans code changes for Stellar secret seeds.
+The workflow is defined in `.github/workflows/secret-scanning.yml` and uses custom Stellar patterns from `.github/secret-scanning/stellar-patterns.txt`.
+
+When branch protection is configured, `Secret Scanning` is intended to be enforced as a required status check to prevent merges of code containing accidental secrets.
+
 ### Out of scope
 
 - Third-party dependencies and upstream toolchains (Rust, Soroban SDK, Stellar Core) — please report those to the respective upstream projects
@@ -86,3 +93,36 @@ Key security properties of the contracts:
 - Only the designated admin address can execute or cancel proposals
 - Quorum is enforced at finalisation — proposals cannot pass silently with low turnout
 - All token amounts use `i128` — no floating-point arithmetic or rounding errors
+
+---
+
+## SEC-014 — Event Schema Audit (OWASP Information Leakage Review)
+
+**Date:** 2026-04-29  
+**Reviewer:** automated + manual  
+**Finding:** ✅ No sensitive information leakage detected
+
+### Event schema
+
+| Event topic  | Topic args    | Data payload                              | Assessment |
+|-------------|---------------|-------------------------------------------|------------|
+| `"init"`    | —             | `admin: Address`                          | ✅ Minimal — admin is a public role |
+| `"created"` | `id: u64`     | `proposer: Address`                       | ✅ Minimal — proposal creation is a public act |
+| `"vote"`    | `id: u64`     | `(voter: Address, vote: Vote, weight: i128)` | ✅ Necessary for governance auditability; token balances used as vote weights are intentionally public |
+| `"final"`   | `id: u64`     | `(state: ProposalState, execute_after: u64)` | ✅ Minimal — outcome and earliest execution timestamp |
+| `"executed"` | `id: u64`    | `()`                                      | ✅ Empty — no data exposed |
+| `"cancelled"` | `id: u64`   | `()`                                      | ✅ Empty — no data exposed |
+| `"qupdate"` | `id: u64`     | `new_quorum: i128`                        | ✅ Quorum is a public governance parameter |
+| `"admxfer"` | —             | `(old_admin: Address, new_admin: Address)` | ✅ Admin addresses are public roles |
+| `"paused"`  | —             | `admin: Address`                          | ✅ Pause actor is a public accountability record |
+| `"unpaused"` | —            | `admin: Address`                          | ✅ Same as above |
+
+### OWASP alignment
+
+- **A3 – Sensitive Data Exposure**: No private keys, seeds, internal counters, or raw storage indices are emitted. All emitted values are either public governance state or addresses that are inherently visible on-chain.
+- **A6 – Security Misconfiguration**: Topic symbols use short 7-character identifiers — no disambiguation ambiguity between event types.
+- **Data minimisation**: Each event carries only data required for off-chain indexers to reconstruct governance state. No redundant fields are present.
+
+### Conclusion
+
+All emitted events satisfy the principle of minimal disclosure. No remediation required.
