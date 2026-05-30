@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Token Threat Modeling**: Full STRIDE analysis for the token contract and a high-risk threat tracking system (#314)
+
 ## [0.1.0] - 2026-04-27
 
 ### Added
