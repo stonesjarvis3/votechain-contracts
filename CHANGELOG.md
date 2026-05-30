@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Live Demo Deployment**: Documented testnet deployment for showcase purposes with a dedicated section in README (#320)
+
 ## [0.1.0] - 2026-04-27
 
 ### Added
