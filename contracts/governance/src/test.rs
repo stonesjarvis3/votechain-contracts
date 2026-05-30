@@ -2470,3 +2470,91 @@ fn test_upgrade_requires_admin() {
 }
 
 // ── end SC-001 ────────────────────────────────────────────────────────────────
+
+// ── TEST-007: Concurrent voting simulation ────────────────────────────────────
+
+/// 100 voters cast Yes votes in sequence; final tally must equal the sum of
+/// all individual vote weights.
+#[test]
+fn test_concurrent_voting_100_yes_voters() {
+    let t = setup_env();
+    let proposal_id = create_test_proposal(&t, &t.admin.clone());
+
+    let mut expected_yes: i128 = 0;
+    for i in 1..=100_i128 {
+        let voter = Address::generate(&t.env);
+        mint_and_vote(&t, &voter, proposal_id, Vote::Yes, i * 1_000);
+        expected_yes += i * 1_000;
+    }
+
+    let proposal = t.client.get_proposal(&proposal_id);
+    assert_eq!(proposal.votes_yes, expected_yes);
+    assert_eq!(proposal.votes_no, 0);
+    assert_eq!(proposal.votes_abstain, 0);
+}
+
+/// 100 voters with a mix of Yes / No / Abstain; each bucket must equal the
+/// sum of weights for that choice.
+#[test]
+fn test_concurrent_voting_mixed_votes() {
+    let t = setup_env();
+    let proposal_id = create_test_proposal(&t, &t.admin.clone());
+
+    let mut expected_yes: i128 = 0;
+    let mut expected_no: i128 = 0;
+    let mut expected_abstain: i128 = 0;
+
+    for i in 1..=100_i128 {
+        let voter = Address::generate(&t.env);
+        let weight = i * 500;
+        let vote = match i % 3 {
+            0 => { expected_yes += weight; Vote::Yes }
+            1 => { expected_no += weight; Vote::No }
+            _ => { expected_abstain += weight; Vote::Abstain }
+        };
+        mint_and_vote(&t, &voter, proposal_id, vote, weight);
+    }
+
+    let proposal = t.client.get_proposal(&proposal_id);
+    assert_eq!(proposal.votes_yes, expected_yes);
+    assert_eq!(proposal.votes_no, expected_no);
+    assert_eq!(proposal.votes_abstain, expected_abstain);
+}
+
+/// Total vote count equals the sum of all three buckets (no state corruption).
+#[test]
+fn test_concurrent_voting_total_integrity() {
+    let t = setup_env();
+    let proposal_id = create_test_proposal(&t, &t.admin.clone());
+
+    let mut total_weight: i128 = 0;
+    for i in 1..=100_i128 {
+        let voter = Address::generate(&t.env);
+        let weight = 1_000_i128;
+        total_weight += weight;
+        let vote = match i % 3 {
+            0 => Vote::Yes,
+            1 => Vote::No,
+            _ => Vote::Abstain,
+        };
+        mint_and_vote(&t, &voter, proposal_id, vote, weight);
+    }
+
+    let p = t.client.get_proposal(&proposal_id);
+    assert_eq!(p.votes_yes + p.votes_no + p.votes_abstain, total_weight);
+}
+
+/// Each voter can only vote once; a second attempt returns AlreadyVoted.
+#[test]
+fn test_concurrent_voting_no_double_vote() {
+    let t = setup_env();
+    let proposal_id = create_test_proposal(&t, &t.admin.clone());
+
+    let voter = Address::generate(&t.env);
+    mint_and_vote(&t, &voter, proposal_id, Vote::Yes, 1_000);
+
+    let result = t.client.try_cast_vote(&voter, &proposal_id, &Vote::No);
+    assert_eq!(result, Err(Ok(ContractError::AlreadyVoted)));
+}
+
+// ── end TEST-007 ──────────────────────────────────────────────────────────────
