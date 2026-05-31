@@ -2675,3 +2675,111 @@ fn test_concurrent_voting_no_double_vote() {
 }
 
 // ── end TEST-007 ──────────────────────────────────────────────────────────────
+
+// ── TEST-013: admin transfer and privilege escalation prevention ──────────────
+
+/// AC1: admin transfer succeeds with a valid new admin.
+#[test]
+fn test_013_transfer_admin_succeeds_with_valid_new_admin() {
+    let t = setup_env();
+    let new_admin = Address::generate(&t.env);
+    // Should not panic — transfer is valid
+    t.client.transfer_admin(&t.admin, &new_admin);
+    // Confirm new admin can perform a privileged operation (cancel)
+    let proposer = Address::generate(&t.env);
+    let id = create_test_proposal(&t, &proposer);
+    t.client.cancel(&new_admin, &id);
+    assert_eq!(t.client.get_proposal(&id).state, ProposalState::Cancelled);
+}
+
+/// AC2a: non-admin cannot call execute.
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_013_non_admin_cannot_execute() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let id = setup_passed_proposal(&env, &client, &admin);
+    client.execute(&non_admin, &id);
+}
+
+/// AC2b: non-admin cannot call cancel.
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_013_non_admin_cannot_cancel() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let id = setup_active_proposal(&env, &client, &admin);
+    client.cancel(&non_admin, &id);
+}
+
+/// AC2c: non-admin cannot call pause.
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_013_non_admin_cannot_pause() {
+    let t = setup_env();
+    let non_admin = Address::generate(&t.env);
+    t.client.pause(&non_admin);
+}
+
+/// AC3a: old admin loses execute privilege after transfer.
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_013_old_admin_loses_execute_after_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let id = setup_passed_proposal(&env, &client, &admin);
+    client.transfer_admin(&admin, &new_admin);
+    client.execute(&admin, &id); // old admin — must revert
+}
+
+/// AC3b: old admin loses cancel privilege after transfer.
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_013_old_admin_loses_cancel_after_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let id = setup_active_proposal(&env, &client, &admin);
+    client.transfer_admin(&admin, &new_admin);
+    client.cancel(&admin, &id); // old admin — must revert
+}
+
+/// AC3c: old admin loses pause privilege after transfer.
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_013_old_admin_loses_pause_after_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let token_id = setup_token(&env, &admin);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.transfer_admin(&admin, &new_admin);
+    client.pause(&admin); // old admin — must revert
+}
+
+/// AC4: admin cannot transfer to the zero address.
+#[test]
+#[should_panic(expected = "Error(Contract, #28)")]
+fn test_013_transfer_admin_to_zero_address_reverts() {
+    let t = setup_env();
+    let zero = Address::from_str(
+        &t.env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    );
+    t.client.transfer_admin(&t.admin, &zero);
+}
+
+// ── end TEST-013 ──────────────────────────────────────────────────────────────
