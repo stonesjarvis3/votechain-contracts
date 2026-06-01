@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface ModalProps {
@@ -18,13 +19,9 @@ interface ModalProps {
  * - On close: focus returns to the element that triggered the modal.
  * - Escape key closes the modal.
  * - Clicking the backdrop closes the modal.
- *
- * Screen-reader support:
- * - role="dialog" + aria-modal="true" tells AT to ignore content outside.
- * - aria-labelledby links the dialog to its visible title.
  */
 export default function Modal({ isOpen, onClose, title, children }: ModalProps) {
-  // useFocusTrap handles: focus-on-open, focus-trap, focus-restore, Escape key.
+  const { t } = useTranslation('common');
   const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, onClose);
 
   if (!isOpen) return null;
@@ -42,8 +39,6 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
         aria-modal="true"
         aria-labelledby="modal-title"
         className="modal"
-        // tabIndex={-1} makes the container itself focusable so useFocusTrap
-        // always has a valid target when the dialog has no focusable children.
         tabIndex={-1}
       >
         <div className="modal-header">
@@ -51,7 +46,7 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close dialog"
+            aria-label={t('closeDialog')}
             className="modal-close"
           >
             ✕
