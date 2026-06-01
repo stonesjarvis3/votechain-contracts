@@ -87,6 +87,8 @@ pub enum ContractError {
     NotPendingAdmin = 33,
     /// 34 – Target version is lower than or equal to the current version (downgrade rejected)
     DowngradeNotAllowed = 34,
+    /// 35 – Veto threshold is invalid (negative or larger than total supply)
+    InvalidVetoThreshold = 35,
 }
 
 /// Lifecycle state of the governance contract itself.
@@ -248,6 +250,11 @@ pub enum DataKey {
     /// Maximum allowed voting duration in seconds (instance storage).
     /// Key space: singleton — only one `MaxDuration` entry exists.
     MaxDuration,
+
+    /// Absolute vote weight threshold that rejects a proposal immediately when
+    /// `votes_no >= veto_threshold`. Stored as instance storage.
+    /// Key space: singleton — only one `VetoThreshold` entry exists.
+    VetoThreshold,
 
     /// Address nominated to become the next admin (instance storage).
     /// Set by `propose_admin_transfer`; cleared on acceptance or expiry.
