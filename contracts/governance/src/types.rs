@@ -87,22 +87,10 @@ pub enum ContractError {
     NotPendingAdmin = 33,
     /// 34 – Target version is lower than or equal to the current version (downgrade rejected)
     DowngradeNotAllowed = 34,
-    /// 35 – Migration failed due to unexpected storage state
-    MigrationFailed = 35,
-    /// 36 – Multi-sig config is not set
-    MultiSigNotConfigured = 36,
-    /// 37 – Threshold must be >= 1 and <= number of admins
-    InvalidThreshold = 37,
-    /// 38 – Admin list must be non-empty
-    EmptyAdminList = 38,
-    /// 39 – Multi-sig action not found
-    ActionNotFound = 39,
-    /// 40 – Caller has already approved this action
-    AlreadyApproved = 40,
-    /// 41 – Caller is not in the multi-sig admin list
-    NotMultiSigAdmin = 41,
-    /// 42 – Multi-sig action has already been executed
-    ActionAlreadyExecuted = 42,
+    /// 35 – Proposal amendment is not allowed after the amendment window or once voting has started
+    ProposalAmendmentNotAllowed = 35,
+    /// 36 – Only the original proposer may amend the proposal
+    NotProposalOwner = 36,
 }
 
 /// Lifecycle state of the governance contract itself.
@@ -240,6 +228,10 @@ pub enum DataKey {
     /// Key space: singleton — only one `Paused` entry exists.
     Paused,
 
+    /// Optional reason string explaining why the contract was paused (instance storage).
+    /// Key space: singleton — only one `PauseReason` entry exists.
+    PauseReason,
+
     /// Timestamp (Unix seconds) of `proposer`'s most recent proposal (persistent storage).
     /// Key space: one entry per unique proposer address.
     LastProposal(Address),
@@ -272,18 +264,9 @@ pub enum DataKey {
     /// Unix timestamp after which the pending admin nomination expires (instance storage).
     AdminTransferExpiry,
 
-    /// Multi-sig admin configuration (instance storage).
-    /// Stores the list of admin addresses and approval threshold.
-    MultiSigConfig,
-
-    /// Monotonic counter for multi-sig action IDs (instance storage).
-    MultiSigActionCount,
-
-    /// A pending multi-sig action, keyed by action ID (persistent storage).
-    MultiSigAction(u64),
-
-    /// Approval flag: has `Address` approved multi-sig action `u64` (persistent storage).
-    MultiSigApproval(u64, Address),
+    /// Amendment window in seconds before voting begins.
+    /// Key space: singleton — only one `AmendWindow` entry exists.
+    AmendWindow,
 }
 
 #[contracttype]
@@ -293,44 +276,17 @@ pub struct VoteRecord {
     pub weight: i128,
 }
 
-/// Multi-sig admin configuration: a list of admin addresses and an approval threshold.
+/// Full contract configuration returned by [`get_config`].
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct MultiSigConfig {
-    /// Ordered list of admin addresses eligible to approve actions.
-    pub admins: Vec<Address>,
-    /// Number of approvals required to execute an action (M-of-N).
-    pub threshold: u32,
-}
-
-/// The type of privileged action that requires multi-sig approval.
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub enum MultiSigActionType {
-    /// Execute a passed proposal (carries proposal_id).
-    ExecuteProposal,
-    /// Cancel an active proposal (carries proposal_id).
-    CancelProposal,
-    /// Update the multi-sig admin config.
-    UpdateMultiSig,
-    /// Pause the contract.
-    Pause,
-    /// Unpause the contract.
-    Unpause,
-}
-
-/// A pending multi-sig action awaiting threshold approvals.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct MultiSigAction {
-    pub id: u64,
-    pub action_type: MultiSigActionType,
-    /// Optional proposal ID (used for ExecuteProposal / CancelProposal).
-    pub proposal_id: u64,
-    /// Optional new multi-sig config (used for UpdateMultiSig).
-    pub new_config: Option<MultiSigConfig>,
-    /// Number of approvals collected so far.
-    pub approvals: u32,
-    /// Whether this action has been executed.
-    pub executed: bool,
+pub struct GovernanceConfig {
+    pub voting_token: Address,
+    pub min_proposal_balance: i128,
+    pub proposal_cooldown: u64,
+    pub min_duration: u64,
+    pub max_duration: u64,
+    pub restrict_admin_vote: bool,
+    pub timelock_duration: u64,
+    pub paused: bool,
+    pub version: (u32, u32, u32),
 }
