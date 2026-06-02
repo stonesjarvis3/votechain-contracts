@@ -5,6 +5,9 @@
 #   ./scripts/deploy_mainnet.sh --mainnet              # interactive deploy
 #   ./scripts/deploy_mainnet.sh --mainnet --dry-run    # dry-run (no transactions)
 #
+# ⚠️  Before running this script, complete every item in:
+#     docs/mainnet-deployment-checklist.md
+#
 # Requirements:
 #   - stellar CLI installed and configured
 #   - STELLAR_SECRET_KEY env var set (deployer account)
