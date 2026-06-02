@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { NotificationSubscribe } from "../components/NotificationSubscribe";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -243,6 +244,11 @@ export function GovernanceDashboard() {
               ))}
             </tbody>
           </table>
+        </section>
+
+        {/* Notification subscriptions */}
+        <section style={{ gridColumn: "1 / -1" }}>
+          <NotificationSubscribe />
         </section>
 
       </div>
