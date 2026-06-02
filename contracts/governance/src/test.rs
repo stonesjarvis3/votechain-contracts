@@ -52,7 +52,7 @@ impl ReentrantToken {
 fn setup_passed_proposal(env: &Env, client: &GovernanceContractClient, admin: &Address) -> u64 {
     let voter = Address::generate(env);
     let token_id = setup_token(env, &voter);
-    client.initialize(admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
     let id = client.create_proposal(
         &voter,
         &String::from_str(env, "Prop"),
@@ -70,7 +70,7 @@ fn setup_passed_proposal(env: &Env, client: &GovernanceContractClient, admin: &A
 fn setup_active_proposal(env: &Env, client: &GovernanceContractClient, admin: &Address) -> u64 {
     let proposer = Address::generate(env);
     let token_id = setup_token(env, admin);
-    client.initialize(admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
     client.create_proposal(
         &proposer,
         &String::from_str(env, "Prop"),
@@ -100,7 +100,7 @@ fn test_initialize() {
     let tok = votechain_token::TokenContractClient::new(&env, &tok_id);
     tok.initialize(&admin, &10_000_000);
 
-    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     // After initialize: state must be Ready
     assert_eq!(client.get_state(), ContractState::Ready);
@@ -133,7 +133,7 @@ fn test_initialize_emits_event() {
     let tok = votechain_token::TokenContractClient::new(&env, &tok_id);
     tok.initialize(&admin, &10_000_000);
 
-    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     // The "init" event must have been published with admin as data
     let events = env.events().all();
@@ -158,6 +158,122 @@ fn test_create_proposal() {
     assert_eq!(id, 1);
     assert_eq!(t.client.proposal_count(), 1);
     assert_eq!(t.client.get_proposal(&id).state, ProposalState::Active);
+}
+
+#[test]
+fn test_amend_proposal_before_voting_starts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let admin = Address::generate(&env);
+    let token_id = setup_token(&env, &admin);
+    client.initialize(
+        &admin,
+        &token_id,
+        &0_i128,
+        &0_u64,
+        &60_u64,
+        &2_592_000_u64,
+        &false,
+        &60_u64,
+        &0_u64,
+    );
+
+    let proposer = Address::generate(&env);
+    let id = client.create_proposal(
+        &proposer,
+        &String::from_str(&env, "Original title"),
+        &String::from_str(&env, "Original desc"),
+        &100,
+        &3600,
+    );
+
+    client.amend_proposal(
+        &proposer,
+        &id,
+        &String::from_str(&env, "Updated title"),
+        &String::from_str(&env, "Updated desc"),
+    );
+
+    let proposal = client.get_proposal(&id);
+    assert_eq!(proposal.title, String::from_str(&env, "Updated title"));
+    assert_eq!(proposal.description, String::from_str(&env, "Updated desc"));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #35)")]
+fn test_amend_proposal_after_voting_starts_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let admin = Address::generate(&env);
+    let token_id = setup_token(&env, &admin);
+    client.initialize(
+        &admin,
+        &token_id,
+        &0_i128,
+        &0_u64,
+        &60_u64,
+        &2_592_000_u64,
+        &false,
+        &60_u64,
+        &0_u64,
+    );
+
+    let proposer = Address::generate(&env);
+    let id = client.create_proposal(
+        &proposer,
+        &String::from_str(&env, "Original title"),
+        &String::from_str(&env, "Original desc"),
+        &100,
+        &3600,
+    );
+    env.ledger().with_mut(|l| l.timestamp += 60);
+
+    client.amend_proposal(
+        &proposer,
+        &id,
+        &String::from_str(&env, "Updated title"),
+        &String::from_str(&env, "Updated desc"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #36)")]
+fn test_amend_proposal_by_non_proposer_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let admin = Address::generate(&env);
+    let token_id = setup_token(&env, &admin);
+    client.initialize(
+        &admin,
+        &token_id,
+        &0_i128,
+        &0_u64,
+        &60_u64,
+        &2_592_000_u64,
+        &false,
+        &60_u64,
+        &0_u64,
+    );
+
+    let proposer = Address::generate(&env);
+    let id = client.create_proposal(
+        &proposer,
+        &String::from_str(&env, "Original title"),
+        &String::from_str(&env, "Original desc"),
+        &100,
+        &3600,
+    );
+
+    let other = Address::generate(&env);
+    client.amend_proposal(
+        &other,
+        &id,
+        &String::from_str(&env, "Updated title"),
+        &String::from_str(&env, "Updated desc"),
+    );
 }
 
 #[test]
@@ -312,7 +428,7 @@ fn test_migrate_updates_version_and_emits_event() {
     tok.initialize(&admin, &10_000_000);
 
     // initialize sets version to 1.0.0
-    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     // perform migration
     client.migrate(&admin);
@@ -340,7 +456,7 @@ fn test_migrate_is_idempotent() {
     let tok = votechain_token::TokenContractClient::new(&env, &tok_id);
     tok.initialize(&admin, &10_000_000);
 
-    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     // first migration emits event
     client.migrate(&admin);
@@ -525,7 +641,7 @@ fn test_execute_rejected_proposal_reverts() {
     let client = new_client(&env);
     let admin = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
     // Create a proposal that will be rejected (no votes, below quorum)
     let id = client.create_proposal(
         &admin,
@@ -1077,7 +1193,7 @@ fn test_vote_tallies_all_three_types() {
 #[should_panic]
 fn test_reinit_by_original_admin_reverts() {
     let t = setup_env();
-    t.client.initialize(&t.admin, &t.token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    t.client.initialize(&t.admin, &t.token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 }
 
 /// Re-init by a new address must revert with AlreadyInitialized.
@@ -1087,7 +1203,7 @@ fn test_reinit_by_new_address_reverts() {
     let t = setup_env();
     let attacker = Address::generate(&t.env);
     let new_token = Address::generate(&t.env);
-    t.client.initialize(&attacker, &new_token, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    t.client.initialize(&attacker, &new_token, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 }
 
 /// Re-init by the zero address must revert with AlreadyInitialized.
@@ -1096,7 +1212,7 @@ fn test_reinit_by_new_address_reverts() {
 fn test_reinit_by_zero_address_reverts() {
     let t = setup_env();
     let zero = Address::from_str(&t.env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF");
-    t.client.initialize(&zero, &t.token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    t.client.initialize(&zero, &t.token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 }
 
 #[test]
@@ -1153,7 +1269,7 @@ fn test_create_proposal_below_min_balance_reverts() {
     let admin = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
     // require 500_000 tokens to propose
-    client.initialize(&admin, &token_id, &500_000_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &500_000_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     let proposer = Address::generate(&env);
     // proposer has 0 tokens — should panic
@@ -1173,7 +1289,7 @@ fn test_create_proposal_at_min_balance_accepted() {
     let client = new_client(&env);
     let admin = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
-    client.initialize(&admin, &token_id, &500_000_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &500_000_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     let proposer = Address::generate(&env);
     let tok = votechain_token::TokenContractClient::new(&env, &token_id);
@@ -1200,7 +1316,7 @@ fn test_create_proposal_within_cooldown_reverts() {
     // start at non-zero so the `last > 0` sentinel works
     env.ledger().with_mut(|l| l.timestamp = 1_000);
     // 1 hour cooldown, no balance requirement
-    client.initialize(&admin, &token_id, &0_i128, &3600_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &3600_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     let proposer = Address::generate(&env);
     client.create_proposal(
@@ -1227,7 +1343,7 @@ fn test_create_proposal_after_cooldown_accepted() {
     let client = new_client(&env);
     let admin = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
-    client.initialize(&admin, &token_id, &0_i128, &3600_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &3600_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     let proposer = Address::generate(&env);
     client.create_proposal(
@@ -1485,7 +1601,7 @@ fn test_admin_cannot_vote_own_proposal_when_restricted() {
     tok.initialize(&admin, &10_000_000);
     let client = new_client(&env);
     // enable restriction
-    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &true, &0_u64);
+    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &true, &0_u64, &0_u64);
     let id = client.create_proposal(
         &admin,
         &String::from_str(&env, "Admin prop"),
@@ -1508,7 +1624,7 @@ fn test_admin_can_vote_own_proposal_when_not_restricted() {
     tok.initialize(&admin, &10_000_000);
     let client = new_client(&env);
     // restriction disabled
-    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
     let id = client.create_proposal(
         &admin,
         &String::from_str(&env, "Admin prop"),
@@ -1531,7 +1647,7 @@ fn test_non_admin_can_vote_when_admin_restricted() {
     let tok = votechain_token::TokenContractClient::new(&env, &tok_id);
     tok.initialize(&admin, &10_000_000);
     let client = new_client(&env);
-    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &true, &0_u64);
+    client.initialize(&admin, &tok_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &true, &0_u64, &0_u64);
     let proposer = Address::generate(&env);
     let id = client.create_proposal(
         &proposer,
@@ -1849,7 +1965,7 @@ fn test_cancel_reverts_on_non_active_proposal() {
     let client = new_client(&env);
     let admin = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
     
     // Create and finalize a proposal to move it out of Active state
     let id = client.create_proposal(
@@ -2077,7 +2193,7 @@ fn test_initialize_success() {
     let token_id = setup_token(&env, &admin);
 
     assert_eq!(client.get_state(), ContractState::Uninitialized);
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
     assert_eq!(client.get_state(), ContractState::Ready);
 }
 
@@ -2089,7 +2205,7 @@ fn test_initialize_sets_version() {
     let client = new_client(&env);
     let admin = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
     assert_eq!(client.get_version(), (1, 0, 0));
 }
 
@@ -2102,7 +2218,7 @@ fn test_initialize_min_balance_enforced() {
     let client = new_client(&env);
     let admin = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
-    client.initialize(&admin, &token_id, &1_000_000_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &1_000_000_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     let proposer = Address::generate(&env); // zero balance
     client.create_proposal(
@@ -2123,7 +2239,7 @@ fn test_initialize_restrict_admin_vote_enforced() {
     let client = new_client(&env);
     let admin = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &true, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &true, &0_u64, &0_u64);
 
     let id = client.create_proposal(
         &admin,
@@ -2145,8 +2261,8 @@ fn test_initialize_already_initialized_reverts() {
     let client = new_client(&env);
     let admin = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 }
 
 /// initialize with the zero address as admin must revert with InvalidAddress (#28).
@@ -2158,7 +2274,7 @@ fn test_initialize_zero_admin_reverts() {
     let client = new_client(&env);
     let zero = Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF");
     let token_id = Address::generate(&env);
-    client.initialize(&zero, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&zero, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 }
 
 /// initialize with the zero address as voting_token must revert with InvalidAddress (#28).
@@ -2170,7 +2286,7 @@ fn test_initialize_zero_token_reverts() {
     let client = new_client(&env);
     let admin = Address::generate(&env);
     let zero = Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF");
-    client.initialize(&admin, &zero, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &zero, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 }
 
 // ── end #66 ───────────────────────────────────────────────────────────────────
@@ -2341,7 +2457,7 @@ fn test_full_lifecycle_pass_and_execute() {
     let token_id = setup_token(&env, &admin);
 
     // initialize
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
     assert_eq!(client.get_state(), ContractState::Ready);
 
     // mint tokens to voter
@@ -2384,7 +2500,7 @@ fn test_full_lifecycle_reject_below_quorum() {
     let voter = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
 
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     let tok = votechain_token::TokenContractClient::new(&env, &token_id);
     tok.mint(&admin, &voter, &100_000_i128);
@@ -2412,7 +2528,7 @@ fn test_full_lifecycle_cancel() {
     let admin = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
 
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     let proposer = Address::generate(&env);
     let id = client.create_proposal(
@@ -2439,7 +2555,7 @@ fn test_full_lifecycle_multiple_proposals_isolated() {
     let voter2 = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
 
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     let tok = votechain_token::TokenContractClient::new(&env, &token_id);
     tok.mint(&admin, &voter1, &1_000_000_i128);
@@ -2495,7 +2611,7 @@ fn test_full_lifecycle_pause_and_unpause() {
     let voter = Address::generate(&env);
     let token_id = setup_token(&env, &admin);
 
-    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64);
+    client.initialize(&admin, &token_id, &0_i128, &0_u64, &60_u64, &2_592_000_u64, &false, &0_u64, &0_u64);
 
     let tok = votechain_token::TokenContractClient::new(&env, &token_id);
     tok.mint(&admin, &voter, &1_000_000_i128);
