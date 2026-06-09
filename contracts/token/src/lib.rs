@@ -126,9 +126,8 @@ impl TokenContract {
             return Err(ContractError::InvalidAmount);
         }
         // Transfer to self is a no-op: auth is still required but no state changes occur.
-        if from == to {
-            return Ok(());
-        }
+        if from == to { return Ok(()); }
+        if is_frozen(&env, &from) || is_frozen(&env, &to) { return Err(ContractError::AccountFrozen); }
         let b = balance_of(&env, &from);
         if b < amount {
             return Err(ContractError::InsufficientBalance);
@@ -193,9 +192,8 @@ impl TokenContract {
         require_non_zero_address(&env, &from)?;
         require_non_zero_address(&env, &to)?;
         let allowed = allowance(&env, &from, &spender);
-        if allowed < amount {
-            return Err(ContractError::AllowanceExceeded);
-        }
+        if allowed < amount { return Err(ContractError::AllowanceExceeded); }
+        if is_frozen(&env, &from) || is_frozen(&env, &to) { return Err(ContractError::AccountFrozen); }
         let b = balance_of(&env, &from);
         if b < amount {
             return Err(ContractError::InsufficientBalance);
@@ -227,12 +225,9 @@ impl TokenContract {
         // SEC-004: reject zero addresses.
         require_non_zero_address(&env, &admin)?;
         require_non_zero_address(&env, &to)?;
-        if get_admin(&env)? != admin {
-            return Err(ContractError::NotAdmin);
-        }
-        if amount <= 0 {
-            return Err(ContractError::InvalidAmount);
-        }
+        if get_admin(&env)? != admin { return Err(ContractError::NotAdmin); }
+        if amount <= 0 { return Err(ContractError::InvalidAmount); }
+        if is_frozen(&env, &to) { return Err(ContractError::AccountFrozen); }
         set_balance(&env, &to, balance_of(&env, &to) + amount);
         set_total_supply(&env, total_supply(&env) + amount);
         events::minted(&env, &to, amount);
@@ -268,13 +263,47 @@ impl TokenContract {
             return Err(ContractError::NotAdmin);
         }
         let b = balance_of(&env, &from);
-        if b < amount {
-            return Err(ContractError::InsufficientBalance);
-        }
+        if b < amount { return Err(ContractError::InsufficientBalance); }
+        if is_frozen(&env, &from) { return Err(ContractError::AccountFrozen); }
         set_balance(&env, &from, b - amount);
         set_total_supply(&env, total_supply(&env) - amount);
         events::burned(&env, &from, amount);
         Ok(())
+    }
+
+    /// Freezes `target`, preventing it from sending or receiving tokens.
+    ///
+    /// Only the admin may freeze addresses. Frozen addresses can still vote (balance is readable).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if `admin` is not the stored admin.
+    pub fn freeze(env: Env, admin: Address, target: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+        require_non_zero_address(&env, &target)?;
+        if get_admin(&env)? != admin { return Err(ContractError::NotAdmin); }
+        set_frozen(&env, &target, true);
+        events::frozen(&env, &target);
+        Ok(())
+    }
+
+    /// Unfreezes `target`, restoring its ability to send and receive tokens.
+    ///
+    /// Only the admin may unfreeze addresses.
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if `admin` is not the stored admin.
+    pub fn unfreeze(env: Env, admin: Address, target: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+        require_non_zero_address(&env, &target)?;
+        if get_admin(&env)? != admin { return Err(ContractError::NotAdmin); }
+        set_frozen(&env, &target, false);
+        events::unfrozen(&env, &target);
+        Ok(())
+    }
+
+    /// Returns `true` if `target` is currently frozen.
+    pub fn is_frozen(env: Env, target: Address) -> bool {
+        is_frozen(&env, &target)
     }
 
     /// Transfers admin rights to a new address. Only the current admin may call this.
