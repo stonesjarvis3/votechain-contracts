@@ -38,7 +38,7 @@
 //! collide even when called with identical arguments.
 
 use soroban_sdk::{Env, Address, String};
-use crate::types::{ContractError, ContractState, DataKey, Proposal, VoteRecord};
+use crate::types::{ContractError, ContractState, DataKey, Proposal, ProposalMetadata, VoteRecord};
 use soroban_sdk::{Address, Env};
 
 // =============================================================================
@@ -79,9 +79,12 @@ use soroban_sdk::{Address, Env};
 
 /// Persists a proposal to contract storage, keyed by its ID.
 /// TTL is automatically bumped to prevent expiry on long-running proposals.
+/// A compact [`ProposalMetadata`] summary is saved alongside for cost-efficient
+/// list-view reads (issue #485).
 pub fn save_proposal(env: &Env, p: &Proposal) {
     env.storage().persistent().set(&DataKey::Proposal(p.id), p);
     bump_proposal_ttl(env, p.id);
+    save_metadata_summary(env, p);
 }
 
 /// Loads a proposal from storage by ID.
@@ -528,4 +531,76 @@ pub fn bump_multisig_approval_ttl(env: &Env, action_id: u64, approver: &Address)
     env.storage()
         .persistent()
         .bump(&DataKey::MultiSigApproval(action_id, approver.clone()), ttl);
+}
+
+// ── Issue #485: Metadata compression / batch storage ─────────────────────────
+
+/// Maximum preview length (bytes) stored in the compact metadata summary.
+const METADATA_PREVIEW_LEN: usize = 256;
+
+/// Computes an FNV-1a 64-bit checksum over the raw bytes of a Soroban `String`.
+///
+/// FNV-1a is chosen for its simplicity (no external crate needed in `no_std`)
+/// and good distribution for short strings.  It is **not** a cryptographic
+/// hash; its purpose here is lightweight integrity checking, not security.
+pub fn fnv1a_checksum(s: &soroban_sdk::String) -> u64 {
+    const FNV_OFFSET: u64 = 14_695_981_039_346_656_037;
+    const FNV_PRIME: u64 = 1_099_511_628_211;
+
+    let len = s.len() as usize;
+    let mut buf = [0u8; 1024];
+    let slice = &mut buf[..len.min(1024)];
+    s.copy_into_slice(slice);
+
+    let mut hash = FNV_OFFSET;
+    for &b in slice.iter().take(len) {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+/// Builds and saves a [`ProposalMetadata`] summary for a proposal.
+///
+/// Called automatically by [`save_proposal`] so the summary is always in sync.
+/// Stores only the title plus the first [`METADATA_PREVIEW_LEN`] bytes of the
+/// description, plus a checksum and the full description length.
+pub fn save_metadata_summary(env: &Env, p: &crate::types::Proposal) {
+    use crate::types::ProposalMetadata;
+
+    let desc_len = p.description.len() as usize;
+    let preview_len = desc_len.min(METADATA_PREVIEW_LEN);
+
+    // Copy the preview bytes into a stack buffer and build a Soroban String.
+    let mut buf = [0u8; METADATA_PREVIEW_LEN];
+    p.description.copy_into_slice(&mut buf[..preview_len]);
+    let preview = soroban_sdk::String::from_bytes(env, soroban_sdk::Bytes::from_slice(env, &buf[..preview_len]).as_ref());
+
+    let checksum = fnv1a_checksum(&p.description);
+
+    let meta = ProposalMetadata {
+        proposal_id: p.id,
+        title: p.title.clone(),
+        description_preview: preview,
+        description_checksum: checksum,
+        description_len: p.description.len(),
+    };
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::MetadataSummary(p.id), &meta);
+    let ttl = get_persistent_storage_ttl(env);
+    env.storage()
+        .persistent()
+        .bump(&DataKey::MetadataSummary(p.id), ttl);
+}
+
+/// Loads the compact metadata summary for a proposal.
+///
+/// Returns `None` if no summary has been written yet (e.g. proposals created
+/// before this feature was deployed).
+pub fn load_metadata_summary(env: &Env, id: u64) -> Option<crate::types::ProposalMetadata> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::MetadataSummary(id))
 }

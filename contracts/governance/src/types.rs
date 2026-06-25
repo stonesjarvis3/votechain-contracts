@@ -286,6 +286,49 @@ pub enum DataKey {
     /// Controls how many ledgers into the future the TTL is extended on write operations.
     /// Key space: singleton — only one `PersistentStorageTTL` entry exists.
     PersistentStorageTTL,
+
+    /// Compact metadata summary for a proposal (persistent storage).
+    ///
+    /// Stores only the title and a truncated description preview (≤256 chars)
+    /// alongside a simple checksum of the full description, reducing on-chain
+    /// storage cost compared to storing the full description in every read path.
+    ///
+    /// Key space: one entry per unique `u64` proposal ID.
+    MetadataSummary(u64),
+}
+
+/// Compact metadata summary stored separately from the full [`Proposal`] entry.
+///
+/// # Storage cost reduction
+///
+/// The [`Proposal`] struct stores the full description (up to 1024 bytes) which is
+/// read on every `get_proposal` call. `ProposalMetadata` stores only:
+/// - the title (unchanged)
+/// - a preview of the first 256 bytes of the description
+/// - a 64-bit FNV-1a checksum of the full description for integrity verification
+///
+/// Callers that only need the title/preview (e.g., list views) load the smaller
+/// `MetadataSummary` entry instead of the full `Proposal` struct.
+///
+/// # Decompression / parsing
+///
+/// - `description_preview`: first min(256, len) bytes of the original description.
+/// - `description_checksum`: FNV-1a 64-bit hash of the **full** description bytes.
+///   Verify integrity by recomputing the hash from the full description stored in
+///   the `Proposal` entry and comparing to this field.
+/// - No content is lost: the full description always remains in the `Proposal` entry.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ProposalMetadata {
+    pub proposal_id: u64,
+    /// Full title (unchanged from the proposal).
+    pub title: String,
+    /// First 256 bytes of the description, suitable for list-view rendering.
+    pub description_preview: String,
+    /// FNV-1a 64-bit checksum of the complete description for integrity verification.
+    pub description_checksum: u64,
+    /// Total byte length of the full description.
+    pub description_len: u32,
 }
 
 #[contracttype]

@@ -3207,3 +3207,89 @@ fn test_get_config_before_init_fails() {
     let result = client.try_get_config();
     assert_eq!(result, Err(Ok(ContractError::VotingTokenNotSet)));
 }
+
+// ── Issue #485: Metadata compression / batch storage ─────────────────────────
+
+/// Metadata summary is created alongside the proposal and contains title + preview.
+#[test]
+fn test_metadata_summary_created_with_proposal() {
+    let t = setup_env();
+    let proposer = Address::generate(&t.env);
+    let id = create_test_proposal(&t, &proposer);
+
+    let meta = t.client.get_metadata_summary(&id).expect("metadata must exist");
+    assert_eq!(meta.proposal_id, id);
+    assert_eq!(meta.title, String::from_str(&t.env, "Test proposal"));
+    assert!(meta.description_len > 0);
+}
+
+/// Preview is at most 256 bytes; full content is preserved in the Proposal entry.
+#[test]
+fn test_metadata_preview_truncated_to_256_bytes() {
+    let t = setup_env();
+    let proposer = Address::generate(&t.env);
+
+    // Build a 512-character description (well above the 256-byte preview cap).
+    let long_desc = String::from_str(
+        &t.env,
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789__\
+         abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789__\
+         abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789__\
+         abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789__\
+         abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789__\
+         abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789__\
+         abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789__\
+         abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789__",
+    );
+
+    let id = t.client.create_proposal(
+        &proposer,
+        &String::from_str(&t.env, "Long proposal"),
+        &long_desc,
+        &100,
+        &3600,
+        &Vec::new(&t.env),
+    );
+
+    let meta = t.client.get_metadata_summary(&id).expect("metadata must exist");
+    // Preview must be ≤256 bytes
+    assert!(meta.description_preview.len() <= 256);
+    // Full description is NOT truncated in the Proposal entry
+    let proposal = t.client.get_proposal(&id);
+    assert_eq!(proposal.description.len(), long_desc.len());
+    // description_len field reflects the full length
+    assert_eq!(meta.description_len, long_desc.len());
+}
+
+/// Checksum is non-zero and consistent across two reads.
+#[test]
+fn test_metadata_checksum_is_stable() {
+    let t = setup_env();
+    let proposer = Address::generate(&t.env);
+    let id = create_test_proposal(&t, &proposer);
+
+    let meta1 = t.client.get_metadata_summary(&id).expect("metadata must exist");
+    let meta2 = t.client.get_metadata_summary(&id).expect("metadata must exist");
+    assert_ne!(meta1.description_checksum, 0);
+    assert_eq!(meta1.description_checksum, meta2.description_checksum);
+}
+
+/// Summary for non-existent proposal returns ProposalNotFound error.
+#[test]
+fn test_metadata_summary_not_found_for_missing_proposal() {
+    let t = setup_env();
+    let result = t.client.try_get_metadata_summary(&9999_u64);
+    assert_eq!(result, Err(Ok(ContractError::ProposalNotFound)));
+}
+
+/// Short description (≤256 chars): preview equals full description.
+#[test]
+fn test_metadata_preview_equals_full_desc_when_short() {
+    let t = setup_env();
+    let proposer = Address::generate(&t.env);
+    let id = create_test_proposal(&t, &proposer);
+
+    let meta = t.client.get_metadata_summary(&id).expect("metadata must exist");
+    // "Test description" is 16 bytes — preview should match exactly
+    assert_eq!(meta.description_preview.len(), meta.description_len);
+}
