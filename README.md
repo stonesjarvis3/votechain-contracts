@@ -155,6 +155,7 @@ Key architectural decisions are documented in [`docs/adr/`](docs/adr/README.md).
 | [ADR-003](docs/adr/ADR-003-live-balance-over-snapshot.md) | Use live token balance instead of vote snapshots |
 | [ADR-004](docs/adr/ADR-004-three-way-vote.md) | Three-way vote: Yes / No / Abstain |
 | [ADR-005](docs/adr/ADR-005-on-chain-events.md) | Emit on-chain events for all state transitions |
+| [ADR-006](docs/adr/ADR-006-storage-ttl-patterns.md) | Storage TTL patterns |
 
 ## License
 
