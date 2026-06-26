@@ -110,6 +110,16 @@ jobs:
           name: wasm-contracts
           path: target/wasm32-unknown-unknown/release/*.wasm
 
+  openapi-validate:
+    name: Validate OpenAPI Spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install @redocly/cli
+        run: npm install -g @redocly/cli@1.21.0
+      - name: Lint OpenAPI spec
+        run: redocly lint api/openapi.yml
+
   wasm-validity:
     name: WASM Validity Tests
     runs-on: ubuntu-latest

@@ -1,0 +1,450 @@
+openapi: 3.1.0
+info:
+  title: VoteChain Governance API
+  version: 1.0.0
+  description: |
+    REST-style description of the VoteChain Soroban governance contract functions.
+    Calls are submitted as Stellar transactions; this spec documents the function
+    interface, parameter shapes, and expected responses so clients and tooling can
+    generate SDKs or UI layers without reading the raw Rust source.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+tags:
+  - name: Governance
+    description: Proposal lifecycle operations
+  - name: Token
+    description: Governance token operations
+  - name: Read
+    description: Read-only queries (no transaction required)
+
+paths:
+  /governance/initialize:
+    post:
+      summary: Initialize the governance contract
+      operationId: initialize
+      tags: [Governance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InitializeRequest'
+            example:
+              admin: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN"
+              voting_token: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+      responses:
+        '200':
+          description: Contract initialised successfully
+          content:
+            application/json:
+              example:
+                status: ok
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Contract already initialised
+
+  /governance/create_proposal:
+    post:
+      summary: Create a new governance proposal
+      operationId: createProposal
+      tags: [Governance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProposalRequest'
+            example:
+              proposer: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN"
+              title: "Increase community treasury allocation"
+              description: "Raise the quarterly community grant pool from 5% to 8% of protocol revenue."
+              quorum: 1000000
+              duration: 604800
+      responses:
+        '200':
+          description: Proposal created; returns new proposal ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposalIdResponse'
+              example:
+                proposal_id: 42
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /governance/cast_vote:
+    post:
+      summary: Cast a vote on an active proposal
+      operationId: castVote
+      tags: [Governance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CastVoteRequest'
+            example:
+              voter: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+              proposal_id: 42
+              vote: "Yes"
+      responses:
+        '200':
+          description: Vote recorded
+          content:
+            application/json:
+              example:
+                status: ok
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Address has already voted on this proposal
+
+  /governance/finalise:
+    post:
+      summary: Finalise a proposal after its voting period ends
+      operationId: finalise
+      tags: [Governance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposalIdBody'
+            example:
+              proposal_id: 42
+      responses:
+        '200':
+          description: Proposal finalised; returns outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposalStatusResponse'
+              example:
+                proposal_id: 42
+                status: "Passed"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /governance/execute:
+    post:
+      summary: Mark a passed proposal as executed (admin only)
+      operationId: execute
+      tags: [Governance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminProposalRequest'
+            example:
+              admin: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN"
+              proposal_id: 42
+      responses:
+        '200':
+          description: Proposal marked as executed
+          content:
+            application/json:
+              example:
+                status: ok
+        '403':
+          description: Caller is not the admin
+
+  /governance/cancel:
+    post:
+      summary: Cancel an active proposal (admin only)
+      operationId: cancel
+      tags: [Governance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminProposalRequest'
+            example:
+              admin: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN"
+              proposal_id: 42
+      responses:
+        '200':
+          description: Proposal cancelled
+          content:
+            application/json:
+              example:
+                status: ok
+        '403':
+          description: Caller is not the admin
+
+  /governance/get_proposal:
+    get:
+      summary: Get proposal details
+      operationId: getProposal
+      tags: [Read]
+      parameters:
+        - name: proposal_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 42
+      responses:
+        '200':
+          description: Proposal details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Proposal'
+              example:
+                id: 42
+                proposer: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN"
+                title: "Increase community treasury allocation"
+                description: "Raise the quarterly community grant pool from 5% to 8% of protocol revenue."
+                quorum: 1000000
+                votes_yes: 750000
+                votes_no: 120000
+                votes_abstain: 30000
+                status: "Passed"
+                end_time: 1751234567
+        '404':
+          description: Proposal not found
+
+  /governance/has_voted:
+    get:
+      summary: Check whether an address has voted on a proposal
+      operationId: hasVoted
+      tags: [Read]
+      parameters:
+        - name: proposal_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 42
+        - name: voter
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+      responses:
+        '200':
+          description: Vote status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  has_voted:
+                    type: boolean
+              example:
+                has_voted: true
+
+  /governance/proposal_count:
+    get:
+      summary: Total number of proposals ever created
+      operationId: proposalCount
+      tags: [Read]
+      responses:
+        '200':
+          description: Proposal count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    format: int64
+              example:
+                count: 42
+
+  /token/mint:
+    post:
+      summary: Mint governance tokens to an address (admin only)
+      operationId: mintToken
+      tags: [Token]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MintRequest'
+            example:
+              admin: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN"
+              to: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+              amount: 5000000
+      responses:
+        '200':
+          description: Tokens minted
+          content:
+            application/json:
+              example:
+                status: ok
+
+  /token/balance:
+    get:
+      summary: Get governance token balance for an address
+      operationId: tokenBalance
+      tags: [Token, Read]
+      parameters:
+        - name: address
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+      responses:
+        '200':
+          description: Token balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance:
+                    type: integer
+                    format: int64
+              example:
+                balance: 5000000
+
+components:
+  schemas:
+    InitializeRequest:
+      type: object
+      required: [admin, voting_token]
+      properties:
+        admin:
+          type: string
+          description: Stellar address of the contract admin
+        voting_token:
+          type: string
+          description: Contract address of the governance token
+
+    CreateProposalRequest:
+      type: object
+      required: [proposer, title, description, quorum, duration]
+      properties:
+        proposer:
+          type: string
+        title:
+          type: string
+          maxLength: 64
+        description:
+          type: string
+          maxLength: 512
+        quorum:
+          type: integer
+          format: int64
+          description: Minimum total votes required for the proposal to be valid
+        duration:
+          type: integer
+          format: int64
+          description: Voting window in seconds
+
+    CastVoteRequest:
+      type: object
+      required: [voter, proposal_id, vote]
+      properties:
+        voter:
+          type: string
+        proposal_id:
+          type: integer
+          format: int64
+        vote:
+          type: string
+          enum: [Yes, No, Abstain]
+
+    ProposalIdBody:
+      type: object
+      required: [proposal_id]
+      properties:
+        proposal_id:
+          type: integer
+          format: int64
+
+    AdminProposalRequest:
+      type: object
+      required: [admin, proposal_id]
+      properties:
+        admin:
+          type: string
+        proposal_id:
+          type: integer
+          format: int64
+
+    MintRequest:
+      type: object
+      required: [admin, to, amount]
+      properties:
+        admin:
+          type: string
+        to:
+          type: string
+        amount:
+          type: integer
+          format: int64
+
+    Proposal:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        proposer:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        quorum:
+          type: integer
+          format: int64
+        votes_yes:
+          type: integer
+          format: int64
+        votes_no:
+          type: integer
+          format: int64
+        votes_abstain:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [Active, Passed, Rejected, Executed, Cancelled]
+        end_time:
+          type: integer
+          format: int64
+          description: Unix timestamp when voting closes
+
+    ProposalIdResponse:
+      type: object
+      properties:
+        proposal_id:
+          type: integer
+          format: int64
+
+    ProposalStatusResponse:
+      type: object
+      properties:
+        proposal_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [Active, Passed, Rejected, Executed, Cancelled]
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+          example:
+            error: "proposal_id does not exist"

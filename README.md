@@ -24,6 +24,8 @@ VoteChain enables DAOs, protocols, and communities to create proposals, cast tok
 
 ```
 .
+├── api
+│   └── openapi.yml         # OpenAPI 3.1 spec for the governance contract
 ├── contracts
 │   ├── governance          # Proposal creation, voting, finalisation, execution
 │   │   ├── src
@@ -129,6 +131,24 @@ NETWORK=mainnet ./scripts/deploy.sh
 
 > **Security**: `config/mainnet.toml` is committed with placeholder values only.  
 > Never commit real contract addresses or private keys.
+
+---
+
+## API Documentation
+
+The governance contract interface is described in [`api/openapi.yml`](api/openapi.yml).
+
+Open [`docs/api/index.html`](docs/api/index.html) in a browser for interactive Swagger UI docs, or serve them locally:
+
+```bash
+make docs-serve   # serves on http://localhost:8080
+```
+
+Validate the spec against the OpenAPI 3.1 standard:
+
+```bash
+make openapi-validate
+```
 
 ---
 
