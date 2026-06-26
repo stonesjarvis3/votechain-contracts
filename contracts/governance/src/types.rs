@@ -282,16 +282,10 @@ pub enum DataKey {
     /// Key space: singleton — only one `AmendWindow` entry exists.
     AmendWindow,
 
-    /// SC-006: Target TTL (ledger count) that a persistent entry is extended to on
-    /// each bump.  Stored in instance storage; defaults to `LEDGERS_TO_LIVE`.
-    /// Key space: singleton — only one `StorageBumpAmount` entry exists.
-    StorageBumpAmount,
-
-    /// SC-006: TTL floor (ledger count) below which a bump is triggered.
-    /// `extend_ttl` is a no-op when the entry's remaining TTL exceeds this value.
-    /// Stored in instance storage; defaults to `LEDGERS_TO_LIVE`.
-    /// Key space: singleton — only one `StorageBumpThreshold` entry exists.
-    StorageBumpThreshold,
+    /// TTL bump amount for persistent storage entries (measured in ledgers).
+    /// Controls how many ledgers into the future the TTL is extended on write operations.
+    /// Key space: singleton — only one `PersistentStorageTTL` entry exists.
+    PersistentStorageTTL,
 }
 
 #[contracttype]
@@ -314,4 +308,5 @@ pub struct GovernanceConfig {
     pub timelock_duration: u64,
     pub paused: bool,
     pub version: (u32, u32, u32),
+    pub persistent_storage_ttl: u32,
 }

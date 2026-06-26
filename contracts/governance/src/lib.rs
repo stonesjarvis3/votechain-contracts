@@ -23,6 +23,8 @@ mod prop_tests;
 #[cfg(test)]
 mod test;
 #[cfg(test)]
+mod test_ttl;
+#[cfg(test)]
 pub mod test_helpers;
 #[cfg(test)]
 mod prop_tests;
@@ -40,9 +42,7 @@ use storage::{
     set_timelock_duration, set_version, set_veto_threshold, set_voting_token, get_vote_record, get_max_duration,
     set_pending_admin, get_pending_admin, clear_pending_admin,
     set_admin_transfer_expiry, get_admin_transfer_expiry,
-    set_pause_reason,
-    set_storage_bump_amount, set_storage_bump_threshold,
-    get_storage_bump_amount, get_storage_bump_threshold,
+    set_pause_reason, set_persistent_storage_ttl, get_persistent_storage_ttl,
 };
 use types::{ContractError, ContractState, DataKey, GovernanceConfig, Proposal, ProposalState, Vote, VoteRecord};
 
@@ -196,10 +196,8 @@ impl GovernanceContract {
     ///   becoming executable. Use `0` to disable the timelock.
     /// - `veto_threshold`: vote weight threshold that rejects a proposal immediately when
     ///   `votes_no >= veto_threshold`. Use `0` to disable the veto mechanism.
-    /// - `storage_bump_amount`: SC-006 — target TTL (ledger count) that each persistent
-    ///   entry is extended to on every bump. Pass `0` to use the default (`LEDGERS_TO_LIVE`).
-    /// - `storage_bump_threshold`: SC-006 — TTL floor below which a bump fires. Pass `0`
-    ///   to use the default (`LEDGERS_TO_LIVE`).
+    /// - `persistent_storage_ttl`: TTL bump amount in ledgers for persistent storage entries;
+    ///   controls how long proposals and votes survive (default ~60 days). Use `0` to use default.
     ///
     /// # Errors
     /// - [`ContractError::AlreadyInitialized`] if the contract has already been initialised.
@@ -216,9 +214,8 @@ impl GovernanceContract {
     ///     true,       // restrict admin voting
     ///     0,          // no amend window
     ///     0,          // no timelock
-    ///     0,          // no veto threshold
-    ///     535_000,    // ~31-day TTL bump target
-    ///     535_000,    // ~31-day TTL bump threshold
+    ///     0,          // veto threshold disabled
+    ///     535_680,    // TTL: ~60 days
     /// )?;
     /// ```
     pub fn initialize(
@@ -233,8 +230,7 @@ impl GovernanceContract {
         amend_window: u64,
         timelock_duration: u64,
         veto_threshold: i128,
-        storage_bump_amount: u32,
-        storage_bump_threshold: u32,
+        persistent_storage_ttl: u32,
     ) -> Result<(), ContractError> {
         // SEC-005: auth is the first operation in every privileged function.
         admin.require_auth();
@@ -274,12 +270,9 @@ impl GovernanceContract {
             set_timelock_duration(&env, timelock_duration);
         }
         set_veto_threshold(&env, veto_threshold);
-        // SC-006: store TTL bump config (0 means "use default", handled in storage.rs).
-        if storage_bump_amount > 0 {
-            set_storage_bump_amount(&env, storage_bump_amount);
-        }
-        if storage_bump_threshold > 0 {
-            set_storage_bump_threshold(&env, storage_bump_threshold);
+
+      if persistent_storage_ttl > 0 {
+            set_persistent_storage_ttl(&env, persistent_storage_ttl);
         }
         set_version(&env, (1, 0, 0));
         set_contract_state(&env, &ContractState::Ready);
