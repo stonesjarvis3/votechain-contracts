@@ -38,8 +38,82 @@
 //! collide even when called with identical arguments.
 
 use soroban_sdk::{Env, Address, String};
-use crate::types::{ContractError, ContractState, DataKey, Proposal, ProposalMetadata, VoteRecord};
-use soroban_sdk::{Address, Env};
+use crate::types::{ContractError, ContractState, DataKey, MultiSigAction, MultiSigConfig, Proposal, VoteRecord};
+
+// =============================================================================
+// SC-006: Storage TTL bump helpers
+// =============================================================================
+//
+// Soroban persistent entries expire after their TTL (measured in ledgers) hits
+// zero.  For long-lived proposals this means entries can silently disappear
+// mid-lifecycle.  We extend every persistent entry's TTL on every write, and
+// on every read that feeds a state-mutating operation.
+//
+// `LEDGERS_TO_LIVE` is the safe default (~31 days at 5 s/ledger).  Deployers
+// can override both threshold and target amount via `initialize`.
+
+/// Default TTL target and threshold when not explicitly configured (~31 days).
+pub const LEDGERS_TO_LIVE: u32 = 535_000;
+
+/// Reads the configured bump target (ledgers) from instance storage, falling
+/// back to [`LEDGERS_TO_LIVE`] when absent or zero.
+fn bump_amount(env: &Env) -> u32 {
+    let v: u32 = env
+        .storage()
+        .instance()
+        .get(&DataKey::StorageBumpAmount)
+        .unwrap_or(0);
+    if v == 0 { LEDGERS_TO_LIVE } else { v }
+}
+
+/// Reads the configured bump threshold (ledgers) from instance storage,
+/// falling back to [`LEDGERS_TO_LIVE`] when absent or zero.
+fn bump_threshold(env: &Env) -> u32 {
+    let v: u32 = env
+        .storage()
+        .instance()
+        .get(&DataKey::StorageBumpThreshold)
+        .unwrap_or(0);
+    if v == 0 { LEDGERS_TO_LIVE } else { v }
+}
+
+/// Extends the TTL of a persistent `key` only when its remaining TTL has
+/// fallen below the configured threshold.  This is a no-op when the entry
+/// is already long-lived enough, so calling it on every read/write is safe.
+#[inline]
+fn bump_persistent(env: &Env, key: &DataKey) {
+    let threshold = bump_threshold(env);
+    let amount = bump_amount(env);
+    env.storage().persistent().extend_ttl(key, threshold, amount);
+}
+
+// =============================================================================
+// SC-006: Accessors for the TTL configuration itself
+// =============================================================================
+
+/// Stores the bump target amount (ledger count) in instance storage.
+pub fn set_storage_bump_amount(env: &Env, amount: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::StorageBumpAmount, &amount);
+}
+
+/// Returns the stored bump target amount. Falls back to [`LEDGERS_TO_LIVE`].
+pub fn get_storage_bump_amount(env: &Env) -> u32 {
+    bump_amount(env)
+}
+
+/// Stores the bump threshold (ledger count) in instance storage.
+pub fn set_storage_bump_threshold(env: &Env, threshold: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::StorageBumpThreshold, &threshold);
+}
+
+/// Returns the stored bump threshold. Falls back to [`LEDGERS_TO_LIVE`].
+pub fn get_storage_bump_threshold(env: &Env) -> u32 {
+    bump_threshold(env)
+}
 
 // =============================================================================
 // Storage Strategy
@@ -88,14 +162,20 @@ pub fn save_proposal(env: &Env, p: &Proposal) {
 }
 
 /// Loads a proposal from storage by ID.
+/// SC-006: TTL is bumped on every successful read that feeds a state-mutating
+/// operation, preventing expiry between a vote and a subsequent finalise call.
 ///
 /// # Errors
 /// - [`ContractError::ProposalNotFound`] if no proposal exists for `id`.
 pub fn load_proposal(env: &Env, id: u64) -> Result<Proposal, ContractError> {
-    env.storage()
+    let key = DataKey::Proposal(id);
+    let proposal = env
+        .storage()
         .persistent()
-        .get(&DataKey::Proposal(id))
-        .ok_or(ContractError::ProposalNotFound)
+        .get(&key)
+        .ok_or(ContractError::ProposalNotFound)?;
+    bump_persistent(env, &key);
+    Ok(proposal)
 }
 
 /// Increments the proposal counter and returns the new ID.
@@ -427,14 +507,19 @@ pub fn save_multisig_action(env: &Env, action: &MultiSigAction) {
 }
 
 /// Loads a multi-sig action by ID.
+/// SC-006: TTL bumped on successful read (feeds state-mutating approve path).
 ///
 /// # Errors
 /// - [`ContractError::ActionNotFound`] if no action exists for `id`.
 pub fn load_multisig_action(env: &Env, id: u64) -> Result<MultiSigAction, ContractError> {
-    env.storage()
+    let key = DataKey::MultiSigAction(id);
+    let action = env
+        .storage()
         .persistent()
-        .get(&DataKey::MultiSigAction(id))
-        .ok_or(ContractError::ActionNotFound)
+        .get(&key)
+        .ok_or(ContractError::ActionNotFound)?;
+    bump_persistent(env, &key);
+    Ok(action)
 }
 
 /// Records that `approver` has approved multi-sig action `action_id`.
@@ -533,74 +618,20 @@ pub fn bump_multisig_approval_ttl(env: &Env, action_id: u64, approver: &Address)
         .bump(&DataKey::MultiSigApproval(action_id, approver.clone()), ttl);
 }
 
-// ── Issue #485: Metadata compression / batch storage ─────────────────────────
+// =============================================================================
+// Metadata version storage (#547)
+// =============================================================================
 
-/// Maximum preview length (bytes) stored in the compact metadata summary.
-const METADATA_PREVIEW_LEN: usize = 256;
-
-/// Computes an FNV-1a 64-bit checksum over the raw bytes of a Soroban `String`.
-///
-/// FNV-1a is chosen for its simplicity (no external crate needed in `no_std`)
-/// and good distribution for short strings.  It is **not** a cryptographic
-/// hash; its purpose here is lightweight integrity checking, not security.
-pub fn fnv1a_checksum(s: &soroban_sdk::String) -> u64 {
-    const FNV_OFFSET: u64 = 14_695_981_039_346_656_037;
-    const FNV_PRIME: u64 = 1_099_511_628_211;
-
-    let len = s.len() as usize;
-    let mut buf = [0u8; 1024];
-    let slice = &mut buf[..len.min(1024)];
-    s.copy_into_slice(slice);
-
-    let mut hash = FNV_OFFSET;
-    for &b in slice.iter().take(len) {
-        hash ^= b as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    hash
+/// Stores the current metadata schema version for newly created proposals.
+/// Bumped by `migrate()` when the proposal data format evolves.
+pub fn set_metadata_version(env: &Env, v: u32) {
+    env.storage().instance().set(&DataKey::MetadataVersion, &v);
 }
 
-/// Builds and saves a [`ProposalMetadata`] summary for a proposal.
-///
-/// Called automatically by [`save_proposal`] so the summary is always in sync.
-/// Stores only the title plus the first [`METADATA_PREVIEW_LEN`] bytes of the
-/// description, plus a checksum and the full description length.
-pub fn save_metadata_summary(env: &Env, p: &crate::types::Proposal) {
-    use crate::types::ProposalMetadata;
-
-    let desc_len = p.description.len() as usize;
-    let preview_len = desc_len.min(METADATA_PREVIEW_LEN);
-
-    // Copy the preview bytes into a stack buffer and build a Soroban String.
-    let mut buf = [0u8; METADATA_PREVIEW_LEN];
-    p.description.copy_into_slice(&mut buf[..preview_len]);
-    let preview = soroban_sdk::String::from_bytes(env, soroban_sdk::Bytes::from_slice(env, &buf[..preview_len]).as_ref());
-
-    let checksum = fnv1a_checksum(&p.description);
-
-    let meta = ProposalMetadata {
-        proposal_id: p.id,
-        title: p.title.clone(),
-        description_preview: preview,
-        description_checksum: checksum,
-        description_len: p.description.len(),
-    };
-
+/// Returns the stored metadata version, defaulting to 1 (initial schema).
+pub fn get_metadata_version(env: &Env) -> u32 {
     env.storage()
-        .persistent()
-        .set(&DataKey::MetadataSummary(p.id), &meta);
-    let ttl = get_persistent_storage_ttl(env);
-    env.storage()
-        .persistent()
-        .bump(&DataKey::MetadataSummary(p.id), ttl);
-}
-
-/// Loads the compact metadata summary for a proposal.
-///
-/// Returns `None` if no summary has been written yet (e.g. proposals created
-/// before this feature was deployed).
-pub fn load_metadata_summary(env: &Env, id: u64) -> Option<crate::types::ProposalMetadata> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::MetadataSummary(id))
+        .instance()
+        .get(&DataKey::MetadataVersion)
+        .unwrap_or(1)
 }
