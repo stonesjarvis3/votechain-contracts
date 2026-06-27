@@ -9,6 +9,7 @@ import {
 } from "./middleware/payloadLimit";
 import proposalRoutes from "./routes/proposals";
 import governanceRoutes from "./routes/governance";
+import healthRoutes from "./routes/health";
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use(validateFieldSizes);
 app.use("/api", rateLimiter);
 app.use("/api", proposalRoutes);
 app.use("/api", governanceRoutes);
+app.use("/", healthRoutes);
 
 // Convert body-parser errors (413 / 400) into structured JSON responses (#546).
 app.use(payloadErrorHandler);
