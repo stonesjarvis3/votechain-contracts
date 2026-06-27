@@ -1,13 +1,12 @@
 import express from "express";
 import { connectRedis } from "./middleware/redisCache";
-import { correlationId, requestLogger } from "./middleware/requestLogger";
+import { rateLimiter } from "./middleware/rateLimiter";
 import proposalRoutes from "./routes/proposals";
 import governanceRoutes from "./routes/governance";
 
 const app = express();
 app.use(express.json());
-app.use(correlationId);
-app.use(requestLogger);
+app.use("/api", rateLimiter);
 app.use("/api", proposalRoutes);
 app.use("/api", governanceRoutes);
 
