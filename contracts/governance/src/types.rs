@@ -91,34 +91,14 @@ pub enum ContractError {
     ProposalAmendmentNotAllowed = 35,
     /// 36 – Only the original proposer may amend the proposal
     NotProposalOwner = 36,
-    /// 37 – A proposal with this ID already exists (defense-in-depth duplicate check)
-    ProposalAlreadyExists = 37,
-    /// 38 – The provided token contract does not expose the required SEP-41 interface
-    InvalidTokenContract = 38,
-    /// 39 – The veto threshold is negative or exceeds total token supply
-    InvalidVetoThreshold = 39,
-    /// 40 – Storage migration failed due to unexpected contract state
+    /// 37 – Invalid duration configuration (min > max)
+    InvalidDurationConfig = 37,
+    /// 38 – Invalid veto threshold (must be >= 0 and <= total supply)
+    InvalidVetoThreshold = 38,
+    /// 39 – Invalid minimum proposal balance (must be >= 0)
+    InvalidMinProposalBalance = 39,
+    /// 40 – Migration failed (invalid state or preconditions)
     MigrationFailed = 40,
-    /// 41 – Caller is not in the multi-sig admin list
-    NotMultiSigAdmin = 41,
-    /// 42 – Multi-sig has not been configured; call initialize_multisig first
-    MultiSigNotConfigured = 42,
-    /// 43 – Multi-sig admin list must not be empty
-    EmptyAdminList = 43,
-    /// 44 – Threshold must be > 0 and ≤ the number of admins
-    InvalidThreshold = 44,
-    /// 45 – Multi-sig action with the given ID does not exist
-    ActionNotFound = 45,
-    /// 46 – Multi-sig action has already been executed
-    ActionAlreadyExecuted = 46,
-    /// 47 – Approver has already approved this multi-sig action
-    AlreadyApproved = 47,
-    /// 48 – Too many tags supplied (max 5)
-    TooManyTags = 48,
-    /// 49 – A single tag exceeds the maximum byte length (32)
-    TagTooLong = 49,
-    /// 50 – spam config values are invalid (e.g. negative min_proposal_balance)
-    InvalidSpamConfig = 50,
 }
 
 /// Lifecycle state of the governance contract itself.

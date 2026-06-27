@@ -28,6 +28,8 @@ mod test_ttl;
 pub mod test_helpers;
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod e2e_lifecycle_tests;
 
 use soroban_sdk::{contract, contractclient, contractimpl, token, Address, Env, String, Vec};
 use storage::{
@@ -251,6 +253,14 @@ impl GovernanceContract {
         if TokenSupplyClient::new(&env, &voting_token).try_total_supply().is_err() {
             return Err(ContractError::InvalidTokenContract);
         }
+        // Validate parameters
+        if min_proposal_balance < 0 {
+            return Err(ContractError::InvalidMinProposalBalance);
+        }
+        if min_duration > max_duration {
+            return Err(ContractError::InvalidDurationConfig);
+        }
+        
         set_admin(&env, &admin);
         set_voting_token(&env, &voting_token);
         let supply = TokenSupplyClient::new(&env, &voting_token).total_supply();
