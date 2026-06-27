@@ -1108,6 +1108,26 @@ impl GovernanceContract {
         load_proposal(&env, proposal_id)
     }
 
+    /// Returns the compact metadata summary for a proposal (issue #485).
+    ///
+    /// The summary contains the title, a 256-byte description preview, a
+    /// FNV-1a checksum of the full description, and the full description length.
+    /// It is cheaper to load than the full [`Proposal`] entry and suitable for
+    /// list-view rendering.
+    ///
+    /// Returns `None` for proposals created before this feature was deployed.
+    ///
+    /// # Errors
+    /// - [`ContractError::ProposalNotFound`] if `proposal_id` does not exist.
+    pub fn get_metadata_summary(
+        env: Env,
+        proposal_id: u64,
+    ) -> Result<types::ProposalMetadata, ContractError> {
+        // Verify the proposal exists first.
+        load_proposal(&env, proposal_id)?;
+        storage::load_metadata_summary(&env, proposal_id).ok_or(ContractError::ProposalNotFound)
+    }
+
     /// Returns the total number of proposals ever created.
     pub fn proposal_count(env: Env) -> u64 {
         env.storage()

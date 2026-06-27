@@ -153,9 +153,12 @@ pub fn get_storage_bump_threshold(env: &Env) -> u32 {
 
 /// Persists a proposal to contract storage, keyed by its ID.
 /// TTL is automatically bumped to prevent expiry on long-running proposals.
+/// A compact [`ProposalMetadata`] summary is saved alongside for cost-efficient
+/// list-view reads (issue #485).
 pub fn save_proposal(env: &Env, p: &Proposal) {
     env.storage().persistent().set(&DataKey::Proposal(p.id), p);
     bump_proposal_ttl(env, p.id);
+    save_metadata_summary(env, p);
 }
 
 /// Loads a proposal from storage by ID.
