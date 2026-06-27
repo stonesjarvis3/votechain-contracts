@@ -4,6 +4,7 @@
  */
 
 import { Router, Request, Response } from "express";
+import { validate } from "../middleware/requestValidator";
 
 const router = Router();
 
@@ -14,8 +15,11 @@ interface ProposalStats {
   avgQuorumAchievement: number;
 }
 
-// GET /governance/stats — returns governance health metrics
-router.get("/governance/stats", async (_req: Request, res: Response) => {
+// GET /governance/stats — returns governance health metrics (no inputs expected)
+router.get(
+  "/governance/stats",
+  validate({}),
+  async (_req: Request, res: Response) => {
   try {
     // TODO: Replace with real API calls to Stellar RPC / indexer
     const stats: ProposalStats = {
@@ -51,7 +55,7 @@ router.get("/governance/stats", async (_req: Request, res: Response) => {
     res.json(stats);
   } catch (error) {
     console.error("Error fetching governance stats:", error);
-    res.status(500).json({ error: "Failed to fetch governance statistics" });
+    res.status(500).json(withCorrelationId(res, { error: "Failed to fetch governance statistics" }));
   }
 });
 

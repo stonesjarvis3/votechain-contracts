@@ -27,11 +27,9 @@ mod test_ttl;
 #[cfg(test)]
 pub mod test_helpers;
 #[cfg(test)]
-mod prop_tests;
-#[cfg(test)]
 mod integration_tests;
 #[cfg(test)]
-mod benches;
+mod e2e_lifecycle_tests;
 
 use soroban_sdk::{contract, contractclient, contractimpl, token, Address, Env, String, Vec};
 use storage::{
