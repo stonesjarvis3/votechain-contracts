@@ -10,6 +10,7 @@ import {
   getCacheMetrics,
   invalidateProposalCache,
 } from "../middleware/redisCache";
+import { idempotency } from "../middleware/idempotency";
 
 const router = Router();
 
@@ -28,7 +29,9 @@ router.get("/proposals/:id", cacheProposalItem, async (req: Request, res: Respon
 });
 
 // POST /proposals/invalidate — called by the event indexer on new on-chain events
-router.post("/proposals/invalidate", async (req: Request, res: Response) => {
+// Protected by idempotency middleware: duplicate requests with the same
+// Idempotency-Key return the cached response without re-executing.
+router.post("/proposals/invalidate", idempotency(), async (req: Request, res: Response) => {
   const { id } = req.body as { id?: string };
   await invalidateProposalCache(id);
   res.json({ ok: true, invalidated: id ?? "list" });
