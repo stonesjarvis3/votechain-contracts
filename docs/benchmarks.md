@@ -1,34 +1,21 @@
 # Performance Benchmarks
 
-This document describes VoteChain's benchmark suite, baseline expectations, threshold configuration, and how to investigate failures.
+Automated benchmarks for the VoteChain governance contract and backend API.
 
 ---
 
-## Overview
+## How to run locally
 
-Two benchmark layers cover different concerns:
-
-| Layer | Tool | What it measures |
-|-------|------|-----------------|
-| **Contract** | [Criterion](https://bheisler.github.io/criterion.rs/) | CPU time for `create_proposal`, `cast_vote`, `finalise` in the Soroban in-process test env |
-| **API** | Node.js (`http` / `perf_hooks`) | HTTP p50/p95/p99 response times for critical backend endpoints |
-
-Both run via the `Performance Benchmarks` GitHub Actions workflow (`.github/workflows/perf.yml`) on a weekly schedule and on demand.
-
----
-
-## Running Locally
-
-### Contract benchmarks
+### Contract benchmarks (Criterion)
 
 ```bash
-# Run all three criterion benchmarks
+# Run all benchmarks
 cargo bench -p votechain-governance
 
-# Save a named baseline (e.g. after a clean main checkout)
+# Save a named baseline (e.g. on a clean main checkout)
 cargo bench -p votechain-governance -- --save-baseline main
 
-# Compare current results against that baseline
+# Compare future runs against that baseline
 cargo bench -p votechain-governance -- --baseline main
 ```
 
@@ -36,35 +23,33 @@ HTML reports are written to `target/criterion/` and can be opened in a browser.
 
 ### API benchmarks
 
-The backend server must be running before you run the benchmark.
+The backend server must be running first.
 
 ```bash
-# Terminal 1 — start the server (requires Redis on localhost:6379)
+# Terminal 1
 cd backend && npm run dev
 
-# Terminal 2 — run the benchmark
+# Terminal 2 — run benchmark only
 cd backend && npm run bench
 
-# Or run the benchmark and immediately check against thresholds:
+# Run benchmark then check against thresholds
 cd backend && npm run bench:check
 ```
 
-Environment variables accepted by `backend/bench/api-bench.js`:
+Environment variables for `backend/bench/api-bench.js`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `API_URL` | `http://localhost:3001` | Base URL of the running backend |
-| `ITERATIONS` | `50` | Number of requests per endpoint |
+| `API_URL` | `http://localhost:3001` | Backend base URL |
+| `ITERATIONS` | `50` | Requests per endpoint |
 | `CONCURRENCY` | `1` | Parallel requests per batch |
-| `OUT_FILE` | `perf/api-results.json` | Path to write JSON results |
+| `OUT_FILE` | `perf/api-results.json` | Path for JSON results |
 
 ---
 
-## Baseline Expectations
+## Baseline expectations
 
-The table below describes the performance expectations for typical stub-mode responses on CI hardware (GitHub-hosted `ubuntu-latest`). These will need to be adjusted as the backend is connected to live Stellar RPC / indexer calls.
-
-### API endpoints
+### API endpoints (stub mode, GitHub-hosted runner)
 
 | Endpoint | p95 target |
 |----------|-----------|
@@ -72,6 +57,8 @@ The table below describes the performance expectations for typical stub-mode res
 | `GET /api/proposals/:id` | ≤ 100 ms |
 | `GET /api/governance/stats` | ≤ 200 ms |
 | `GET /metrics/cache` | ≤ 50 ms |
+
+These will need updating once the backend is connected to live Stellar RPC calls.
 
 ### Contract operations (Soroban in-process)
 
@@ -83,115 +70,92 @@ The table below describes the performance expectations for typical stub-mode res
 
 ---
 
-## Threshold Configuration
+## Threshold configuration
 
-Thresholds live in `perf/thresholds.json`:
+All thresholds live in `perf/thresholds.json`. A run fails when **either** condition holds:
 
-```json
-{
-  "api": {
-    "regression_multiplier": 2.0,
-    "absolute_max_ms": {
-      "GET /api/proposals":        200,
-      "GET /api/proposals/:id":    100,
-      "GET /api/governance/stats": 200,
-      "GET /metrics/cache":         50
-    }
-  },
-  "contract": {
-    "regression_multiplier": 2.0,
-    "absolute_max_us": { ... }
-  }
-}
-```
+1. **Absolute ceiling** — p95 exceeds `absolute_max_ms[endpoint]`
+2. **Regression multiplier** — p95 exceeds `baseline_p95 × regression_multiplier` (requires a stored baseline)
 
-A run fails when **either** condition is met:
-
-1. **Absolute ceiling** — measured p95 exceeds `absolute_max_ms[endpoint]` regardless of any baseline.
-2. **Regression multiplier** — measured p95 exceeds `baseline_p95 × regression_multiplier` (requires a stored baseline).
-
-Edit `thresholds.json` and commit the change to adjust limits for all future runs.
+Edit `perf/thresholds.json` and commit to change limits for all future runs.
 
 ---
 
-## Baseline Management
+## Baseline management
 
-Results from each run are written to `perf/api-results.json`. A stored baseline in `perf/api-baseline.json` enables regression detection across runs.
+`perf/api-results.json` is written each run and gitignored.  
+`perf/api-baseline.json` is committed and used for regression comparison.
 
-### Update the baseline
-
-After a confirmed performance improvement or threshold change:
+**Update the baseline locally:**
 
 ```bash
-# Locally
 node perf/check-regression.js --update-baseline
+git add perf/api-baseline.json && git commit -m "perf: update api baseline"
+```
 
-# Via CI — trigger the workflow with update_baseline = true
+**Update via CI:**
+
+```bash
 gh workflow run perf.yml -f update_baseline=true
 ```
 
-When triggered with `update_baseline=true` the workflow commits the new `perf/api-baseline.json` with a `[skip ci]` commit message.
+The workflow commits `api-baseline.json` automatically with `[skip ci]`.
 
 ---
 
-## CI Integration
+## CI integration
 
-The workflow is defined in `.github/workflows/perf.yml`.
+Workflow: `.github/workflows/perf.yml`
 
-- **Schedule**: every Monday at 03:00 UTC.
-- **Trigger**: `workflow_dispatch` (manual run from the Actions tab).
-- **Blocking**: `continue-on-error: true` on both jobs — failures produce `::warning` annotations and appear in the job summary but **do not block merges**. This prevents flaky infrastructure timings from blocking unrelated PRs.
+- **Schedule**: every Monday 03:00 UTC
+- **Trigger**: `workflow_dispatch` (Actions tab, optional `update_baseline` input)
+- **Blocking**: `continue-on-error: true` on both jobs — failures produce `::warning` annotations and appear in the job summary but **do not block merges**
 
-To make benchmarks a hard gate, set the repository variable `PERF_BLOCKING` to `true` and change `continue-on-error` in `perf.yml`.
+Artifacts:
 
-### Artifacts
-
-| Artifact | Retention | Contents |
-|----------|-----------|---------|
-| `criterion-report-<run_id>` | 30 days | Criterion HTML report (`target/criterion/`) |
+| Name | Retention | Contents |
+|------|-----------|---------|
+| `criterion-report-<run_id>` | 30 days | Criterion HTML report |
 | `api-bench-results-<run_id>` | 90 days | `perf/api-results.json` |
 
 ---
 
-## Interpreting Failures
+## Diagnosing failures
 
-### API regression output
+**API regression output:**
 
 ```
-❌ GET /api/proposals          p95 432ms  ← p95 432ms > 2x baseline 110ms (limit: 220ms)
+❌ GET /api/governance/stats   p95=480ms  ← p95 480ms > 2x baseline 110ms (limit: 220ms)
 ```
 
-Diagnosis steps:
-1. Run `npm run bench` locally to reproduce.
-2. Check Redis is healthy (`redis-cli ping`).
-3. Profile the slow handler — add timing logs, check middleware overhead.
-4. If the slowdown is expected (new feature, heavier queries), update the baseline:
-   ```bash
-   node perf/check-regression.js --update-baseline
-   ```
-5. If absolute limits need adjusting, edit `perf/thresholds.json`.
+Steps:
+1. Reproduce locally: `cd backend && npm run bench`
+2. Check Redis is healthy: `redis-cli ping`
+3. Add timing logs to the slow route middleware
+4. If the regression is intentional: `node perf/check-regression.js --update-baseline`
+5. If the limit itself needs raising: edit `perf/thresholds.json`
 
-### Criterion regression output
+**Criterion regression output:**
 
-Criterion prints `change: [+X% +Y%]` lines. A `>` symbol indicates a statistically significant slowdown. Compare with the saved `--baseline main` to isolate the commit that introduced the regression.
+Criterion prints `change: [+X% +Y%]` lines. A `>` marker means a statistically significant slowdown. Use `--baseline main` to isolate which commit caused it.
 
 ---
 
-## File Map
+## File map
 
 ```
 perf/
-  thresholds.json         — absolute caps + regression multiplier
-  check-regression.js     — regression checker (reads api-results.json)
-  api-results.json        — latest benchmark run (gitignored)
-  api-baseline.json       — committed baseline for regression detection
+  thresholds.json          Absolute caps + regression multiplier
+  check-regression.js      Reads api-results.json, applies thresholds
+  api-results.json         Latest run output (gitignored)
+  api-baseline.json        Committed baseline for regression detection
 
 backend/bench/
-  api-bench.js            — API benchmark runner (pure Node.js)
+  api-bench.js             API benchmark runner (Node.js built-ins only)
 
 contracts/governance/benches/
-  governance_bench.rs     — Criterion benchmarks for contract operations
+  governance_bench.rs      Criterion benchmarks for contract operations
 
 .github/workflows/
-  perf.yml                — CI workflow (scheduled + on demand)
+  perf.yml                 Scheduled + on-demand CI pipeline
 ```
